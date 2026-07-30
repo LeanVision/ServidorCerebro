@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import time
 import base64
+import asyncio
 from datetime import datetime, timezone
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
@@ -10,10 +11,10 @@ import requests
 
 import torch
 import torch.nn.functional as F
-from torchvision import models, transforms
-from PIL import Image
+from torchreid.utils import FeatureExtractor
+import onnxruntime as ort 
 
-# --- CONEXIÓN DIRECTA A SUPABASE (Sin la librería problemática) ---
+# --- CONEXIÓN DIRECTA A SUPABASE ---
 SUPABASE_URL = "https://butoxtgngmbnkmgueavf.supabase.co/rest/v1/visitor_sessions"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1dG94dGduZ21ibmttZ3VlYXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNjUwODcsImV4cCI6MjA5ODc0MTA4N30.nFYb_11mK353SWQMCNQIjM3IcbhIrpbD9M59iMHWkaM"
 SUPABASE_HEADERS = {
@@ -23,172 +24,228 @@ SUPABASE_HEADERS = {
     "Prefer": "return=representation"
 }
 
-app = FastAPI(title="Cerebro Central Re-ID + Supabase")
+app = FastAPI(title="Cerebro Central Director + Web Dashboard (ONNX)")
 
-print("🧠 Cargando modelo IA (ResNet50)...")
-pesos = models.ResNet50_Weights.DEFAULT
-modelo_ia = models.resnet50(weights=pesos)
-modelo_ia = torch.nn.Sequential(*(list(modelo_ia.children())[:-1]))
-modelo_ia.eval()
+print("🧠 Cargando modelo IA Re-ID (OSNet Omni-Scale)...")
+extractor_ia = FeatureExtractor(model_name='osnet_x1_0', device='cpu')
+print("✅ ¡Modelo OSNet listo!")
 
-transformaciones = transforms.Compose([
-    transforms.Resize((256, 128)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-print("✅ ¡Modelo IA listo!")
+# 🟢 CARGA DEL MODELO DEMOGRÁFICO
+print("🧠 Buscando modelo ONNX de Edad/Género...")
+try:
+    session_age_gender = ort.InferenceSession("demografia.onnx")
+    tiene_onnx = True
+    print("✅ ¡Modelo ONNX cargado correctamente!")
+except Exception as e:
+    session_age_gender = None
+    tiene_onnx = False
+    print("⚠️ Archivo 'demografia.onnx' no encontrado. Se enviará 'No definido' temporalmente.")
 
-UMBRAL_SIMILITUD = 0.40       
+# --- 🛠️ AJUSTES DEL DIRECTOR DE ORQUESTA ---
+UMBRAL_SIMILITUD = 0.32       
 MAX_FOTOS_ALBUM = 5           
 TIEMPO_TELETRANSPORTACION = 3 
-TIEMPO_EXPIRACION_SEGUNDOS = 120 # 2 minutos para el check-out
+TIEMPO_INACTIVIDAD_SEGUNDOS = 60 # 🟢 1 MINUTO PARA PRUEBA
 
-memoria_reid = {}         
-mapeo_trackers = {}       
-contador_ids = 1
+clientes_globales = {}  
+traductor_camaras = {}  
+contador_global_ids = 1
 
 @app.post("/identificar")
 async def identificar_persona(
     file: UploadFile = File(...), 
     zona: str = Form("Desconocida"),
     tracker_id: str = Form(None),
-    camara_id: str = Form("camara_default") # 🟢 Recibimos el origen
+    camara_id: str = Form("camara_default"),
+    branch_id: str = Form("SUC-001") 
 ):
-    global contador_ids
+    global contador_global_ids
     
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     imagen_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     imagen_rgb = cv2.cvtColor(imagen_cv2, cv2.COLOR_BGR2RGB)
-    imagen_pil = Image.fromarray(imagen_rgb)
     foto_b64 = base64.b64encode(contents).decode('utf-8')
     
-    lote_entrada = transformaciones(imagen_pil).unsqueeze(0)
     with torch.no_grad():
-        huella_bruta = modelo_ia(lote_entrada).flatten()
+        huellas_batch = extractor_ia([imagen_rgb]) 
+        huella_bruta = huellas_batch[0]            
         huella_nueva = F.normalize(huella_bruta, p=2, dim=0)
 
     ahora = time.time()
+    id_local_camara = f"{camara_id}_{tracker_id}" if tracker_id else None
 
-    # 🟢 Armamos una llave única combinando la cámara y su tracker local
-    llave_tracker_unico = f"{camara_id}_{tracker_id}" if tracker_id else None
-
-    if llave_tracker_unico and llave_tracker_unico in mapeo_trackers:
-        id_final = mapeo_trackers[llave_tracker_unico]
-        if id_final in memoria_reid:
-            if ahora - memoria_reid[id_final].get("ultimo_update_album", 0) > 3.0:
-                album = memoria_reid[id_final]["historial"]
+    if id_local_camara and id_local_camara in traductor_camaras:
+        id_global = traductor_camaras[id_local_camara]["id_global"]
+        if id_global in clientes_globales:
+            if ahora - clientes_globales[id_global].get("ultimo_update_album", 0) > 1.5:
+                album = clientes_globales[id_global]["historial"]
                 if len(album) >= MAX_FOTOS_ALBUM:
                     album.pop(0) 
                 album.append(huella_nueva)
-                memoria_reid[id_final]["ultimo_update_album"] = ahora
+                clientes_globales[id_global]["ultimo_update_album"] = ahora
             
-            memoria_reid[id_final].update({
-                "foto_b64": foto_b64,
-                "zona_actual": zona,
-                "timestamp": ahora,
+            clientes_globales[id_global].update({
+                "foto_b64": foto_b64, 
+                "zona_actual": zona, 
+                "timestamp": ahora, 
                 "hora_legible": time.strftime("%H:%M:%S")
             })
-            return {"status": "ok", "id_asignado": id_final}
+            traductor_camaras[id_local_camara]["ultimo_update"] = ahora
+            return {"status": "ok", "id_asignado": id_global}
 
-    # Búsqueda matemática de similitud habitual...
-    mejor_id = None
+    personas_activas_en_esta_camara = set()
+    for tk, info_tk in traductor_camaras.items():
+        if tk.startswith(f"{camara_id}_") and tk != id_local_camara:
+            if (ahora - info_tk["ultimo_update"]) < 0.8:
+                personas_activas_en_esta_camara.add(info_tk["id_global"])
+
+    mejor_id_global = None
     max_similitud = -1.0
     
-    for persona_id, datos in memoria_reid.items():
-        if zona != datos["zona_actual"] and (ahora - datos["timestamp"]) < TIEMPO_TELETRANSPORTACION:
-            continue
+    for persona_id, datos in clientes_globales.items():
+        if branch_id != datos.get("branch_id", branch_id): continue
+        if zona != datos["zona_actual"] and (ahora - datos["timestamp"]) < TIEMPO_TELETRANSPORTACION: continue
 
         similitudes = [F.cosine_similarity(huella_nueva.unsqueeze(0), h.unsqueeze(0)).item() for h in datos["historial"]]
         mejor_sim_album = max(similitudes)
         
+        if persona_id in personas_activas_en_esta_camara and mejor_sim_album < 0.45: continue
+                
         if mejor_sim_album > max_similitud:
             max_similitud = mejor_sim_album
-            mejor_id = persona_id
+            mejor_id_global = persona_id
             
     if max_similitud >= UMBRAL_SIMILITUD:
-        id_final = mejor_id
-        if len(memoria_reid[id_final]["historial"]) >= MAX_FOTOS_ALBUM:
-            memoria_reid[id_final]["historial"].pop(0)
-        memoria_reid[id_final]["historial"].append(huella_nueva)
-        memoria_reid[id_final]["ultimo_update_album"] = ahora
-        mensaje = f"¡Reconocido! Es {id_final}"
+        id_global = mejor_id_global
+        if len(clientes_globales[id_global]["historial"]) >= MAX_FOTOS_ALBUM:
+            clientes_globales[id_global]["historial"].pop(0)
+        clientes_globales[id_global]["historial"].append(huella_nueva)
+        clientes_globales[id_global]["ultimo_update_album"] = ahora
+        mensaje = f"Fusión Multicámara: {id_local_camara} ahora es {id_global} (Sim: {max_similitud*100:.1f}%)"
     else:
-        id_final = f"Cliente_{contador_ids}"
-        contador_ids += 1
-        mensaje = f"Nueva persona: {id_final}"
-        
-        memoria_reid[id_final] = {
-            "historial": [huella_nueva],
-            "ultimo_update_album": ahora,
-            "hora_entrada": ahora,
-            "zona_entrada": zona
+        id_global = f"Cliente_Global_{contador_global_ids}"
+        contador_global_ids += 1
+        mensaje = f"Nuevo Ingreso: {id_global} (Mejor similitud: {max_similitud*100:.1f}%)"
+        clientes_globales[id_global] = {
+            "historial": [huella_nueva], "ultimo_update_album": ahora, 
+            "hora_entrada": ahora, "zona_entrada": zona, "branch_id": branch_id 
         }
         
-    if llave_tracker_unico:
-        mapeo_trackers[llave_tracker_unico] = id_final
+    if id_local_camara:
+        traductor_camaras[id_local_camara] = {"id_global": id_global, "ultimo_update": ahora}
 
-    memoria_reid[id_final].update({
-        "foto_b64": foto_b64,
-        "zona_actual": zona,
-        "similitud": max_similitud if max_similitud >= 0 else 0,
-        "timestamp": ahora,
-        "hora_legible": time.strftime("%H:%M:%S")
+    clientes_globales[id_global].update({
+        "foto_b64": foto_b64, "zona_actual": zona, "similitud": max_similitud if max_similitud >= 0 else 0,
+        "timestamp": ahora, "hora_legible": time.strftime("%H:%M:%S"), "branch_id": branch_id 
     })
         
-    print(f"🔍 {mensaje} desde [{camara_id}] en {zona}")
-    return {"status": "ok", "id_asignado": id_final}
+    print(f"🔍 {mensaje} desde [{camara_id}]")
+    return {"status": "ok", "id_asignado": id_global}
 
-# --- CHECK-OUT Y ENVÍO A SUPABASE POR HTTP DIRECTO ---
-def limpiar_memoria_inactiva():
-    ahora = time.time()
-    borrados = [pid for pid, d in memoria_reid.items() if ahora - d["timestamp"] > TIEMPO_EXPIRACION_SEGUNDOS]
+
+# --- 🟢 EL CHECK-OUT CON ROSTRO Y ONNX ---
+def procesar_y_enviar_supabase(pid, datos, tiempo_adentro):
+    sucursal_final = datos.get("branch_id", "SUC-001")
+    print(f"🚀 [CHECK-OUT] Procesando a {pid} por inactividad. (Tiempo total: {tiempo_adentro}s)")
     
-    for pid in borrados:
-        datos = memoria_reid[pid]
-        tiempo_adentro = int(datos["timestamp"] - datos["hora_entrada"])
-        
-        # Solo mandamos a la BD si estuvo más de 5 segundos
-        if tiempo_adentro > 5:
-            print(f"🚀 Enviando a {pid} a Supabase... (Tiempo total: {tiempo_adentro}s)")
+    genero_calculado = "No definido"
+    rango_edad_calculado = "No definido"
+    
+    if tiene_onnx and session_age_gender is not None:
+        try:
+            print(f"🧬 Buscando rostro en la foto para analizar demografía...")
             
-            payload = {
-                "branch_id": "SUC-001", 
-                "tracker_id": pid,
-                "gender": "No definido",
-                "age_range": "No definido",
-                "entered_at": datetime.fromtimestamp(datos["hora_entrada"], timezone.utc).isoformat(),
-                "exited_at": datetime.fromtimestamp(datos["timestamp"], timezone.utc).isoformat(),
-                "dwell_time_seconds": tiempo_adentro
-            }
+            img_bytes = base64.b64decode(datos["foto_b64"])
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            try:
-                # Enviamos el paquete por requests, libre de errores de path
-                respuesta = requests.post(SUPABASE_URL, json=payload, headers=SUPABASE_HEADERS)
+            # --- 🕵️ NUEVO: DETECTOR DE CARAS OPENCV ---
+            face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+            gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+            # Escanea la foto buscando patrones de rostros
+            rostros = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+            
+            if len(rostros) > 0:
+                print("   ↳ 👤 ¡Cara encontrada! Recortando para máxima precisión ONNX...")
+                x, y, w, h = rostros[0]
+                imagen_ia = img_cv[y:y+h, x:x+w] # Se queda solo con el cuadrado de la cara
+            else:
+                print("   ↳ ⚠️ Cara no visible. ONNX usará el cuerpo entero como respaldo.")
+                imagen_ia = img_cv
                 
-                if respuesta.status_code in [200, 201]:
-                    print("✅ Sesión guardada en la nube con éxito.")
-                else:
-                    print(f"⚠️ Rechazo de Supabase: {respuesta.text}")
-            except Exception as e:
-                print(f"⚠️ Error de red enviando a Supabase: {e}")
+            img_rgb = cv2.cvtColor(imagen_ia, cv2.COLOR_BGR2RGB)
+            
+            # Pasamos la cara recortada a ONNX
+            img_resized = cv2.resize(img_rgb, (128, 256)) 
+            img_float = img_resized.astype(np.float32) / 255.0
+            img_transpuesta = np.transpose(img_float, (2, 0, 1))
+            input_onnx = np.expand_dims(img_transpuesta, axis=0)
 
-        del memoria_reid[pid]
-        trackers_a_borrar = [k for k, v in mapeo_trackers.items() if v == pid]
-        for t in trackers_a_borrar: del mapeo_trackers[t]
+            salidas = session_age_gender.run(None, {"input": input_onnx})
+            prediccion_genero = salidas[0][0] 
+            prediccion_edad = salidas[1][0]   
+            
+            generos_texto = ["Hombre", "Mujer"]
+            edades_texto = ["18-25", "26-35", "36-45", "46+"]
+            
+            genero_calculado = generos_texto[np.argmax(prediccion_genero)]
+            rango_edad_calculado = edades_texto[np.argmax(prediccion_edad)]
+            print(f"   ↳ Resultado ONNX: {genero_calculado}, {rango_edad_calculado}")
+            
+        except Exception as e:
+            print(f"⚠️ Error al procesar ONNX: {e}")
+    
+    payload = {
+        "branch_id": sucursal_final,  
+        "tracker_id": pid,
+        "gender": genero_calculado,
+        "age_range": rango_edad_calculado,
+        "entered_at": datetime.fromtimestamp(datos["hora_entrada"], timezone.utc).isoformat(),
+        "exited_at": datetime.fromtimestamp(datos["timestamp"], timezone.utc).isoformat(),
+        "dwell_time_seconds": tiempo_adentro
+    }
+    
+    try:
+        respuesta = requests.post(SUPABASE_URL, json=payload, headers=SUPABASE_HEADERS)
+        if respuesta.status_code in [200, 201]:
+            print(f"✅ {pid} guardado en Supabase con éxito.")
+        else:
+            print(f"⚠️ Rechazo de Supabase: {respuesta.text}")
+    except Exception as e:
+        print(f"⚠️ Error enviando a Supabase: {e}")
 
+async def reloj_limpiador_background():
+    while True:
+        await asyncio.sleep(20)
+        ahora = time.time()
+        borrados = [pid for pid, d in clientes_globales.items() if ahora - d["timestamp"] > TIEMPO_INACTIVIDAD_SEGUNDOS]
+        
+        for pid in borrados:
+            datos = clientes_globales[pid]
+            tiempo_adentro = int(datos["timestamp"] - datos["hora_entrada"])
+            if tiempo_adentro > 5:
+                procesar_y_enviar_supabase(pid, datos, tiempo_adentro)
+            del clientes_globales[pid]
+            trackers_a_borrar = [k for k, v in traductor_camaras.items() if v["id_global"] == pid]
+            for t in trackers_a_borrar: del traductor_camaras[t]
+
+@app.on_event("startup")
+async def iniciar_servicios():
+    asyncio.create_task(reloj_limpiador_background())
+    print(f"⏱️ Reloj activado. Expulsará clientes tras {TIEMPO_INACTIVIDAD_SEGUNDOS}s sin ser vistos.")
+
+# --- RUTAS WEB ---
 @app.get("/api/clientes")
 def obtener_clientes():
-    limpiar_memoria_inactiva()
-    clientes = [{"id": p, "zona": d["zona_actual"], "similitud": f"{d['similitud']*100:.1f}%", "ultima_vista": d["hora_legible"], "foto": d["foto_b64"]} for p, d in memoria_reid.items()]
-    return {"clientes": clientes}
+    return {"clientes": [{"id": p, "zona": d["zona_actual"], "similitud": f"{d['similitud']*100:.1f}%", "ultima_vista": d["hora_legible"], "foto": d["foto_b64"]} for p, d in clientes_globales.items()]}
 
 @app.post("/api/reset")
 def resetear_memoria():
-    global contador_ids
-    memoria_reid.clear()
-    mapeo_trackers.clear()
-    contador_ids = 1
+    global contador_global_ids
+    clientes_globales.clear()
+    traductor_camaras.clear()
+    contador_global_ids = 1
     return {"ok": True}
 
 @app.get("/", response_class=HTMLResponse)
@@ -197,15 +254,14 @@ def panel_web():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>LeanVision | Cerebro Cloud</title>
+        <title>LeanVision | Cerebro Total</title>
         <style>
             body { font-family: 'Segoe UI', sans-serif; background-color: #1e1e2f; color: white; padding: 20px; }
             h1 { text-align: center; color: #00ff88; margin-bottom: 5px; }
             .header-bar { display: flex; justify-content: space-between; align-items: center; max-width: 900px; margin: 0 auto 20px auto; background-color: #2a2a40; padding: 12px 20px; border-radius: 8px; }
             .btn-reset { background-color: #ff5252; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-            .btn-reset:hover { background-color: #ff1744; transform: scale(1.03); }
             .grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
-            .card { background-color: #2a2a40; border-radius: 10px; padding: 15px; width: 210px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.3); transition: 0.3s; }
+            .card { background-color: #2a2a40; border-radius: 10px; padding: 15px; width: 210px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
             .card img { max-width: 100%; border-radius: 6px; height: 180px; object-fit: cover; }
             .tag-id { font-size: 1.15em; font-weight: bold; margin: 10px 0 5px 0; color: #ffeb3b; }
             .tag-zona { background-color: #00ff88; color: black; padding: 3px 10px; border-radius: 15px; font-size: 0.85em; font-weight: bold; display: inline-block; }
@@ -213,9 +269,9 @@ def panel_web():
         </style>
     </head>
     <body>
-        <h1>🧠 Cerebro Central Re-ID + Supabase</h1>
+        <h1>🧠 Cerebro Central Re-ID (ONNX)</h1>
         <div class="header-bar">
-            <span>📊 Conectado por HTTP Directo | Puerto 8081</span>
+            <span>📊 Check-Out automático en 60s | Puerto 8081</span>
             <button class="btn-reset" onclick="borrarMemoria()">🧹 Resetear Sistema</button>
         </div>
         <div class="grid" id="contenedor-clientes"></div>
@@ -241,7 +297,7 @@ def panel_web():
                 } catch (e) {}
             }
             async function borrarMemoria() {
-                if (confirm("¿Borrar historial?")) { await fetch('/api/reset', { method: 'POST' }); actualizarPanel(); }
+                if (confirm("¿Borrar historial global?")) { await fetch('/api/reset', { method: 'POST' }); actualizarPanel(); }
             }
             setInterval(actualizarPanel, 1500);
             actualizarPanel();
@@ -251,5 +307,4 @@ def panel_web():
     """
 
 if __name__ == "__main__":
-    # PUERTO CAMBIADO AL 8081 PARA NO CHOCAR CON REACT
     uvicorn.run(app, host="0.0.0.0", port=8081)
