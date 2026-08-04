@@ -1,2 +1,12 @@
 # Modelos locales grandes: se descargan o distribuyen fuera de Git.
 demografia.onnx
+
+# Credenciales locales (Supabase, etc.). Nunca subir.
+.env
+
+# Instalador local, no forma parte del repositorio.
+Claude Setup.exe
+
+# Artefactos de Python.
+__pycache__/
+*.pyc
