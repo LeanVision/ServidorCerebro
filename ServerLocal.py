@@ -55,18 +55,17 @@ _cargar_dotenv_local()
 
 HEATMAP_WIDTH = 640
 HEATMAP_HEIGHT = 480
-# Heatmap por grilla con decaimiento: refleja actividad reciente (no todo el
-# día) y manda un payload chico al dashboard.
+# Heatmap por grilla, acumulativo (sin decaimiento): se mantiene estable
+# durante todo el día para poder comparar qué zonas fueron más concurridas al
+# cierre. Se reinicia manualmente con /api/reset.
 HEATMAP_CELDA_PX = 20
-HEATMAP_TAU_SEGUNDOS = 45.0  # Constante de enfriamiento: a mayor valor, más "memoria".
-HEATMAP_VALOR_MINIMO = 0.05  # Debajo de esto una celda se considera fría y se descarta.
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 # La recepción HTTP no ejecuta IA: sólo encola JPEGs. Así el loop de la cámara
 # nunca queda esperando al modelo ni se acumulan threads sin límite.
-REID_QUEUE_SIZE = 24
+REID_QUEUE_SIZE = 300
 REID_WORKERS = 1  # OSNet sobre CPU es más estable con una inferencia a la vez.
 SUPABASE_WORKERS = 1
 
@@ -91,10 +90,11 @@ UMBRAL_SIMILITUD_CONTINUIDAD = 0.20
 MIN_APARICIONES_VISIBLE = 2
 ALFA_SIMILITUD_EMA = 0.5
 
-# Edad/género con InsightFace: se toman varias muestras por sesión y se vota
-# (mayoría de género, mediana de edad) para que el resultado sea estable.
-DEMO_MAX_VOTOS = 7
-DEMO_INTERVALO_SEGUNDOS = 1.5
+# Edad/género con InsightFace: durante la sesión sólo se guardan fotos (sin
+# analizarlas); el análisis real corre una única vez al cerrar la sesión, así
+# nunca compite por CPU con el worker de Re-ID en tiempo real.
+DEMO_MAX_FOTOS = 7
+DEMO_INTERVALO_SEGUNDOS = 2.5
 DEMO_MIN_DET_SCORE = 0.55
 
 logging.basicConfig(
@@ -113,7 +113,6 @@ contador_global_ids = 1
 cola_reid: asyncio.Queue[DetectionJob] | None = None
 reid_executor = ThreadPoolExecutor(max_workers=REID_WORKERS, thread_name_prefix="reid")
 supabase_executor = ThreadPoolExecutor(max_workers=SUPABASE_WORKERS, thread_name_prefix="supabase")
-demografia_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="demografia")
 metricas = {
     "accepted": 0,
     "processed": 0,
@@ -146,7 +145,10 @@ try:
         raise RuntimeError("insightface no está instalado (pip install insightface)")
     print("Cargando modelo de edad/género (InsightFace)...")
     analizador_rostros = FaceAnalysis(name="buffalo_l", allowed_modules=["detection", "genderage"])
-    analizador_rostros.prepare(ctx_id=-1, det_size=(640, 640))  # ctx_id=-1 => CPU
+    # det_size chico: en CPU, 640x640 tarda 300-1000ms (compite fuerte con el
+    # worker de Re-ID); 320x320 tarda 30-70ms con la misma calidad de
+    # detección en nuestros recortes (personas ya relativamente cerca).
+    analizador_rostros.prepare(ctx_id=-1, det_size=(320, 320))  # ctx_id=-1 => CPU
     tiene_demografia = True
     print("Modelo de edad/género listo.")
 except Exception as error:
@@ -245,99 +247,77 @@ def _ids_bloqueados_en_misma_camara(
     return bloqueados
 
 
-def _decaimiento(valor: float, ultimo: float, ahora: float) -> float:
-    """Enfría una celda según el tiempo transcurrido (decaimiento exponencial)."""
-    dt = ahora - ultimo
-    if dt <= 0:
-        return valor
-    return valor * float(np.exp(-dt / HEATMAP_TAU_SEGUNDOS))
-
-
-def _registrar_heatmap(pos_x: float, pos_y: float, ahora: float) -> None:
-    """Acumula presencia en la celda de la grilla, enfriando lo previo primero."""
+def _registrar_heatmap(pos_x: float, pos_y: float) -> None:
+    """Acumula presencia en la celda de la grilla, sin decaimiento."""
     if not (0 <= pos_x < HEATMAP_WIDTH and 0 <= pos_y < HEATMAP_HEIGHT):
         return
     celda_id = (int(pos_x // HEATMAP_CELDA_PX), int(pos_y // HEATMAP_CELDA_PX))
-    celda = heatmap_celdas.get(celda_id)
-    valor_previo = _decaimiento(celda["valor"], celda["ultimo"], ahora) if celda else 0.0
-    heatmap_celdas[celda_id] = {"valor": valor_previo + 1.0, "ultimo": ahora}
+    celda = heatmap_celdas.setdefault(celda_id, {"valor": 0.0})
+    celda["valor"] += 1.0
 
 
-def _snapshot_heatmap(ahora: float) -> tuple[list[dict], float]:
-    """Devuelve los puntos vigentes (celdas ya enfriadas) y el valor máximo."""
+def _snapshot_heatmap() -> tuple[list[dict], float]:
+    """Devuelve los puntos acumulados hasta ahora y el valor máximo (para
+    escalar colores en el dashboard)."""
     puntos: list[dict] = []
     maximo = 0.0
-    frias: list[tuple[int, int]] = []
-    for celda_id, celda in heatmap_celdas.items():
-        valor = _decaimiento(celda["valor"], celda["ultimo"], ahora)
-        if valor < HEATMAP_VALOR_MINIMO:
-            frias.append(celda_id)
-            continue
-        celda["valor"], celda["ultimo"] = valor, ahora
-        col, fila = celda_id
+    for (col, fila), celda in heatmap_celdas.items():
+        valor = celda["valor"]
         puntos.append({
             "x": int(col * HEATMAP_CELDA_PX + HEATMAP_CELDA_PX // 2),
             "y": int(fila * HEATMAP_CELDA_PX + HEATMAP_CELDA_PX // 2),
             "value": round(valor, 3),
         })
         maximo = max(maximo, valor)
-    for celda_id in frias:
-        heatmap_celdas.pop(celda_id, None)
     return puntos, maximo
 
 
-def _muestrear_demografia(id_global: str, image_bytes: bytes) -> None:
-    """Corre InsightFace sobre un recorte y suma un voto de edad/género.
+def _guardar_foto_para_demografia(datos: dict, ahora: float, image_bytes: bytes) -> None:
+    """Guarda una muestra para analizar recién al cerrar la sesión.
 
-    Se ejecuta en su propio executor para no frenar el pipeline de Re-ID. Sólo
-    cuenta el rostro más confiable del recorte; si no hay cara clara, no vota.
+    No llama a InsightFace acá: sólo copia bytes bajo el lock (costo
+    insignificante). Así la demografía nunca compite por CPU con el worker de
+    Re-ID en tiempo real; el análisis pesado se hace una única vez, al final.
     """
-    if not tiene_demografia or analizador_rostros is None:
-        return
-    try:
-        imagen = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
-        if imagen is None:
-            return
-        rostros = analizador_rostros.get(imagen)
-        if not rostros:
-            return
-        mejor = max(rostros, key=lambda r: float(getattr(r, "det_score", 0.0)))
-        if float(getattr(mejor, "det_score", 0.0)) < DEMO_MIN_DET_SCORE:
-            return
-        genero = "Mujer" if int(mejor.sex == "F") else "Hombre"
-        edad = int(mejor.age)
-    except Exception as error:
-        logger.warning("No se pudo inferir edad/género: %s", error)
-        return
-
-    with state_lock:
-        datos = clientes_globales.get(id_global)
-        if datos is None:
-            return
-        datos["votos_genero"].append(genero)
-        datos["votos_edad"].append(edad)
-
-
-def _quizas_muestrear_demografia(id_global: str, datos: dict, ahora: float, image_bytes: bytes) -> None:
-    """Programa una muestra de demografía si toca (throttle + tope de votos)."""
     if not tiene_demografia:
         return
-    if len(datos.get("votos_edad", [])) >= DEMO_MAX_VOTOS:
+    fotos: list[bytes] = datos.setdefault("fotos_demografia", [])
+    if ahora - datos.get("ultimo_guardado_demo", 0.0) < DEMO_INTERVALO_SEGUNDOS:
         return
-    if ahora - datos.get("ultimo_voto_demo", 0.0) < DEMO_INTERVALO_SEGUNDOS:
-        return
-    datos["ultimo_voto_demo"] = ahora
-    demografia_executor.submit(_muestrear_demografia, id_global, image_bytes)
+    datos["ultimo_guardado_demo"] = ahora
+    fotos.append(image_bytes)
+    if len(fotos) > DEMO_MAX_FOTOS:
+        fotos.pop(0)
 
 
 def _rango_edad(edad: int) -> str:
     return "-18" if edad < 18 else "18-25" if edad <= 25 else "26-35" if edad <= 35 else "36-45" if edad <= 45 else "46+"
 
 
-def _resolver_demografia(datos: dict) -> tuple[str, str]:
-    """Consolida los votos de la sesión: mayoría de género, mediana de edad."""
-    votos_genero = datos.get("votos_genero", [])
-    votos_edad = datos.get("votos_edad", [])
+def _analizar_demografia_al_cierre(fotos: list[bytes]) -> tuple[str, str]:
+    """Corre InsightFace sobre las fotos guardadas durante la sesión, todas
+    juntas y una sola vez, cuando la persona ya se está por dar de baja. Nunca
+    se ejecuta mientras la sesión está activa.
+    """
+    if not tiene_demografia or analizador_rostros is None or not fotos:
+        return "No definido", "No definido"
+    votos_genero: list[str] = []
+    votos_edad: list[int] = []
+    for image_bytes in fotos:
+        try:
+            imagen = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if imagen is None:
+                continue
+            rostros = analizador_rostros.get(imagen)
+            if not rostros:
+                continue
+            mejor = max(rostros, key=lambda r: float(getattr(r, "det_score", 0.0)))
+            if float(getattr(mejor, "det_score", 0.0)) < DEMO_MIN_DET_SCORE:
+                continue
+            votos_genero.append("Mujer" if mejor.sex == "F" else "Hombre")
+            votos_edad.append(int(mejor.age))
+        except Exception as error:
+            logger.warning("No se pudo inferir edad/género de una muestra: %s", error)
     if not votos_edad:
         return "No definido", "No definido"
     genero = max(("Hombre", "Mujer"), key=lambda g: votos_genero.count(g))
@@ -363,7 +343,7 @@ def _procesar_deteccion(job: DetectionJob) -> str:
     id_local = f"{job.camara_id}_{job.tracker_id}" if job.tracker_id else None
 
     with state_lock:
-        _registrar_heatmap(*posicion, ahora)
+        _registrar_heatmap(*posicion)
 
         # La ruta local es rápida, pero no actualiza el álbum ciegamente: un
         # recorte erróneo de ese tracker no debe alterar la identidad global.
@@ -382,7 +362,7 @@ def _procesar_deteccion(job: DetectionJob) -> str:
                     "posicion": posicion,
                 })
                 traductor_camaras[id_local].update(ultimo_update=ahora, posicion=posicion)
-                _quizas_muestrear_demografia(id_global, datos, ahora, job.image_bytes)
+                _guardar_foto_para_demografia(datos, ahora, job.image_bytes)
                 _actualizar_metricas_procesado(started_at)
                 return id_global
 
@@ -439,9 +419,8 @@ def _procesar_deteccion(job: DetectionJob) -> str:
                 "branch_id": job.branch_id,
                 "apariciones": 1,
                 "similitud_ema": 0.0,
-                "votos_genero": [],
-                "votos_edad": [],
-                "ultimo_voto_demo": 0.0,
+                "fotos_demografia": [],
+                "ultimo_guardado_demo": 0.0,
             }
             clientes_globales[id_global] = datos
             similitud_asignada = 0.0
@@ -468,7 +447,7 @@ def _procesar_deteccion(job: DetectionJob) -> str:
             "camara_id": job.camara_id,
             "posicion": posicion,
         })
-        _quizas_muestrear_demografia(id_global, datos, ahora, job.image_bytes)
+        _guardar_foto_para_demografia(datos, ahora, job.image_bytes)
         _actualizar_metricas_procesado(started_at)
         return id_global
 
@@ -530,7 +509,7 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.warning("Supabase no configurado; no se guarda la sesión %s.", pid)
         return
-    genero, rango_edad = _resolver_demografia(datos)
+    genero, rango_edad = _analizar_demografia_al_cierre(datos.get("fotos_demografia", []))
     payload = {
         "branch_id": datos.get("branch_id", "SUC-001"),
         "tracker_id": pid,
@@ -599,14 +578,16 @@ def obtener_clientes() -> dict:
             # todavía: evita tarjetas fantasma por un recorte espurio.
             if datos.get("apariciones", 1) < MIN_APARICIONES_VISIBLE:
                 continue
-            genero, rango_edad = _resolver_demografia(datos)
             clientes.append({
                 "id": persona_id,
                 "zona": datos.get("zona_actual", "Desconocida"),
                 "similitud": f"{datos.get('similitud', 0.0) * 100:.1f}%",
                 "ultima_vista": datos.get("hora_legible", "--:--:--"),
-                "genero": genero,
-                "edad": rango_edad,
+                # El género/edad se calculan recién al cerrar la sesión (así
+                # nunca compiten por CPU con el Re-ID en vivo); mientras la
+                # persona sigue activa no hay nada que mostrar todavía.
+                "genero": "Pendiente",
+                "edad": "Pendiente",
                 "foto": datos.get("foto_b64", ""),
             })
     return {"clientes": clientes}
@@ -614,9 +595,8 @@ def obtener_clientes() -> dict:
 
 @app.get("/api/heatmap")
 def obtener_heatmap() -> dict:
-    ahora = time.time()
     with state_lock:
-        puntos, maximo = _snapshot_heatmap(ahora)
+        puntos, maximo = _snapshot_heatmap()
     return {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT, "puntos": puntos, "max": round(maximo, 3)}
 
 
