@@ -42,13 +42,20 @@ def _cargar_dotenv_local(ruta: str = ".env") -> None:
     """
     if not os.path.exists(ruta):
         return
-    with open(ruta, "r", encoding="utf-8") as archivo:
-        for linea in archivo:
+    with open(ruta, "r", encoding="utf-8-sig") as archivo:
+        for numero_linea, linea in enumerate(archivo, start=1):
             linea = linea.strip()
             if not linea or linea.startswith("#") or "=" not in linea:
                 continue
             clave, _, valor = linea.partition("=")
-            os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+            clave = clave.strip()
+            valor = valor.strip().strip('"').strip("'")
+            try:
+                os.environ.setdefault(clave, valor)
+            except (ValueError, OSError) as error:
+                # Una línea con caracteres inválidos (ej. copiado con algún
+                # byte invisible) no debe tumbar el arranque del servidor.
+                print(f"Aviso: .env línea {numero_linea} inválida, se omite ({error!r}).")
 
 
 _cargar_dotenv_local()
