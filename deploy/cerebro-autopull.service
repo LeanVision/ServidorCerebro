@@ -1,0 +1,10 @@
+[Unit]
+Description=Chequea y aplica actualizaciones de LeanVision Cerebro desde GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=serverpruebas
+WorkingDirectory=/home/serverpruebas/leanvision/CerebroLocal
+ExecStart=/home/serverpruebas/leanvision/CerebroLocal/deploy/cerebro-autopull.sh

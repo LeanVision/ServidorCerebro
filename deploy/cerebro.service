@@ -1,0 +1,17 @@
+[Unit]
+Description=LeanVision Cerebro (Re-ID, demografia y heatmap)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=serverpruebas
+WorkingDirectory=/home/serverpruebas/leanvision/CerebroLocal
+ExecStart=/home/serverpruebas/leanvision/CerebroLocal/venv/bin/python ServerLocal.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
