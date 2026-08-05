@@ -536,7 +536,8 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         response = requests.post(SUPABASE_URL, json=payload, headers=headers, timeout=5)
         response.raise_for_status()
     except requests.RequestException as error:
-        logger.warning("No se pudo guardar la sesión en Supabase: %s", error)
+        cuerpo = getattr(error.response, "text", "")
+        logger.warning("No se pudo guardar la sesión en Supabase: %s | body=%s", error, cuerpo)
         return
     logger.info("Sesión %s guardada en Supabase (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
 
