@@ -1,0 +1,15 @@
+# Dependencias de ServerLocal.py (Cerebro).
+# torchreid/ está vendorizado en el repo, no es un paquete de pip.
+#
+# En Raspberry Pi (ARM64) instalar sin pines exactos la primera vez: dejar que
+# pip resuelva los wheels disponibles para esa arquitectura/versión de Python.
+fastapi
+uvicorn[standard]
+python-multipart
+requests
+numpy
+opencv-python
+torch
+torchvision
+insightface
+onnxruntime
