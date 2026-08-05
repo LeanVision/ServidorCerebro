@@ -13,3 +13,9 @@ torch
 torchvision
 insightface
 onnxruntime
+# torchreid/__init__.py importa TODOS sus datasets al cargar el paquete
+# (aunque sólo usemos FeatureExtractor); gdown y scipy son imports a nivel de
+# módulo de datasets que no usamos (university1652, grid/mars/ilidsvid) y
+# rompen el import si faltan.
+gdown
+scipy
