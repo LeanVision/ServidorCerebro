@@ -537,6 +537,8 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         response.raise_for_status()
     except requests.RequestException as error:
         logger.warning("No se pudo guardar la sesión en Supabase: %s", error)
+        return
+    logger.info("Sesión %s guardada en Supabase (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
 
 
 async def reloj_limpiador_background() -> None:
