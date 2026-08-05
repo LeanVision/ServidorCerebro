@@ -19,3 +19,7 @@ onnxruntime
 # rompen el import si faltan.
 gdown
 scipy
+# torchreid/engine/engine.py hace "from torch.utils.tensorboard import
+# SummaryWriter" a nivel de módulo (parte del motor de entrenamiento, que no
+# usamos, pero igual se importa). torch no trae tensorboard como dependencia.
+tensorboard
