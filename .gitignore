@@ -4,6 +4,9 @@ demografia.onnx
 # Credenciales locales (Supabase, etc.). Nunca subir.
 .env
 
+# Config del plano (cámaras/zonas): específica de cada despliegue físico.
+plano_config.json
+
 # Instalador local, no forma parte del repositorio.
 Claude Setup.exe
 

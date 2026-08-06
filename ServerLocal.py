@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import threading
@@ -26,6 +27,7 @@ import torch.nn.functional as F
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from torchreid.utils import FeatureExtractor
 
 try:
@@ -69,6 +71,16 @@ HEATMAP_CELDA_PX = 20
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+# Plano único multicámara: cada cámara se calibra con un cuadrilátero que
+# mapea su cuadro completo (4 esquinas) a una región del plano compartido.
+# Sin calibrar, las coordenadas de esa cámara pasan sin cambios (fallback
+# idéntico al comportamiento de una sola cámara). No se versiona (deployment-
+# specific), pero SÍ sobrevive al auto-pull al estar en .gitignore.
+PLANO_CONFIG_PATH = os.getenv("LEANVISION_PLANO_CONFIG", "plano_config.json")
+PUNTOS_CAMARA_ORIGEN = np.float32(
+    [[0, 0], [HEATMAP_WIDTH, 0], [HEATMAP_WIDTH, HEATMAP_HEIGHT], [0, HEATMAP_HEIGHT]]
+)
 
 # La recepción HTTP no ejecuta IA: sólo encola JPEGs. Así el loop de la cámara
 # nunca queda esperando al modelo ni se acumulan threads sin límite.
@@ -125,6 +137,10 @@ clientes_globales: dict[str, dict] = {}
 traductor_camaras: dict[str, dict] = {}
 # Grilla del heatmap: (col, fila) -> {"valor": float, "ultimo": timestamp}.
 heatmap_celdas: dict[tuple[int, int], dict] = {}
+# Plano único: cámaras registradas/calibradas y zonas de negocio (ver arriba).
+calibraciones_camaras: dict[str, dict] = {}
+zonas_negocio: list[dict] = []
+_homografias_cache: dict[str, np.ndarray] = {}
 contador_global_ids = 1
 cola_reid: asyncio.Queue[DetectionJob] | None = None
 reid_executor = ThreadPoolExecutor(max_workers=REID_WORKERS, thread_name_prefix="reid")
@@ -147,6 +163,22 @@ class DetectionJob:
     branch_id: str
     pos_x: float
     pos_y: float
+
+
+class CamaraIn(BaseModel):
+    camara_id: str
+    nombre: str = ""
+    video_url: str
+
+
+class CalibracionIn(BaseModel):
+    puntos_plano: list[list[float]]
+
+
+class ZonaIn(BaseModel):
+    name: str
+    color: str = "#00ff88"
+    polygon: list[list[float]]
 
 
 print("Cargando modelo Re-ID OSNet-IBN...")
@@ -289,6 +321,115 @@ def _snapshot_heatmap() -> tuple[list[dict], float]:
     return puntos, maximo
 
 
+def _recalcular_homografia(camara_id: str) -> None:
+    """Recalcula y cachea la matriz de homografía de una cámara calibrada."""
+    puntos_plano = calibraciones_camaras.get(camara_id, {}).get("puntos_plano")
+    if not puntos_plano:
+        _homografias_cache.pop(camara_id, None)
+        return
+    _homografias_cache[camara_id] = cv2.getPerspectiveTransform(
+        PUNTOS_CAMARA_ORIGEN, np.float32(puntos_plano)
+    )
+
+
+def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
+    """Carga cámaras/zonas del plano desde disco. Nunca tumba el arranque:
+    ante cualquier error, sigue con el estado vacío (mismo criterio que
+    _cargar_dotenv_local)."""
+    if not os.path.exists(ruta):
+        return
+    try:
+        with open(ruta, "r", encoding="utf-8-sig") as archivo:
+            datos = json.load(archivo)
+        calibraciones_camaras.update(datos.get("camaras", {}))
+        zonas_negocio.extend(datos.get("zonas", []))
+        for camara_id in calibraciones_camaras:
+            _recalcular_homografia(camara_id)
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        logger.warning("No se pudo cargar %s, se ignora (%r).", ruta, error)
+
+
+def _guardar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
+    """Escritura atómica (mismo patrón que app_limpia.py: .tmp + replace)."""
+    payload = {"camaras": calibraciones_camaras, "zonas": zonas_negocio}
+    ruta_tmp = f"{ruta}.tmp"
+    with open(ruta_tmp, "w", encoding="utf-8") as archivo:
+        json.dump(payload, archivo, ensure_ascii=False, indent=2)
+    os.replace(ruta_tmp, ruta)
+
+
+def _punto_en_poligono(px: float, py: float, polygon: list) -> bool:
+    """Ray-casting even-odd, portado de mi-proyecto/leanvision/zone.py."""
+    inside = False
+    n = len(polygon)
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _zona_en_punto(x: float, y: float) -> str | None:
+    """Nombre de la primera zona de negocio que contiene el punto, o None."""
+    for zona in zonas_negocio:
+        if _punto_en_poligono(x, y, zona["polygon"]):
+            return zona["name"]
+    return None
+
+
+def _area_poligono(polygon: list) -> float:
+    """Fórmula de shoelace: cerca de 0 implica puntos colineales/duplicados
+    (cuadrilátero degenerado, homografía inválida)."""
+    area = 0.0
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2.0
+
+
+def _transformar_a_plano(camara_id: str, x: float, y: float) -> tuple[float, float]:
+    """Convierte coordenadas nativas de una cámara a espacio de plano.
+
+    Sin calibración, devuelve el punto sin cambios: preserva el
+    comportamiento actual para cámaras no calibradas.
+    """
+    matriz = _homografias_cache.get(camara_id)
+    if matriz is None:
+        return x, y
+    punto = np.array([[[x, y]]], dtype=np.float32)
+    nx, ny = cv2.perspectiveTransform(punto, matriz)[0][0]
+    return float(nx), float(ny)
+
+
+def _actualizar_zona_y_tiempo(datos: dict, zona_nueva: str, ahora: float) -> None:
+    """Acumula tiempo por zona (en memoria, sin decaimiento). Se llama antes
+    de sobreescribir zona_actual, para cerrar el intervalo de la zona previa.
+    """
+    zona_anterior = datos.get("zona_actual")
+    if zona_anterior is None:
+        datos["zona_desde"] = ahora
+    elif zona_anterior != zona_nueva:
+        tiempos: dict[str, float] = datos.setdefault("zona_tiempos", {})
+        tiempos[zona_anterior] = tiempos.get(zona_anterior, 0.0) + (ahora - datos.get("zona_desde", ahora))
+        datos["zona_desde"] = ahora
+    # zona_anterior == zona_nueva: el intervalo sigue abierto, no se toca zona_desde.
+
+
+def _cerrar_intervalo_zona(datos: dict, ahora: float) -> dict[str, float]:
+    """Tiempos por zona incluyendo el intervalo todavía abierto (para exponer
+    en /api/clientes o al cerrar la sesión)."""
+    tiempos = dict(datos.get("zona_tiempos", {}))
+    zona_actual = datos.get("zona_actual")
+    if zona_actual is not None:
+        tiempos[zona_actual] = tiempos.get(zona_actual, 0.0) + (ahora - datos.get("zona_desde", ahora))
+    return tiempos
+
+
 def _guardar_foto_para_demografia(datos: dict, ahora: float, image_bytes: bytes) -> None:
     """Guarda una muestra para analizar recién al cerrar la sesión.
 
@@ -360,7 +501,13 @@ def _procesar_deteccion(job: DetectionJob) -> str:
     id_local = f"{job.camara_id}_{job.tracker_id}" if job.tracker_id else None
 
     with state_lock:
-        _registrar_heatmap(*posicion)
+        # posicion (píxeles nativos de la cámara) sigue usándose tal cual en
+        # toda la lógica de Re-ID de abajo (distancias/umbrales tuneados en
+        # esa escala). posicion_plano es sólo para heatmap/zona de negocio;
+        # nunca se mezclan.
+        posicion_plano = _transformar_a_plano(job.camara_id, *posicion)
+        _registrar_heatmap(*posicion_plano)
+        zona_calculada = _zona_en_punto(*posicion_plano) or job.zona
 
         # La ruta local es rápida, pero no actualiza el álbum ciegamente: un
         # recorte erróneo de ese tracker no debe alterar la identidad global.
@@ -370,9 +517,10 @@ def _procesar_deteccion(job: DetectionJob) -> str:
                 datos = clientes_globales[id_global]
                 _agregar_huella_confiable(datos, huella_nueva, ahora)
                 datos["apariciones"] = datos.get("apariciones", 1) + 1
+                _actualizar_zona_y_tiempo(datos, zona_calculada, ahora)
                 datos.update({
                     "foto_b64": foto_b64,
-                    "zona_actual": job.zona,
+                    "zona_actual": zona_calculada,
                     "timestamp": ahora,
                     "hora_legible": time.strftime("%H:%M:%S"),
                     "camara_id": job.camara_id,
@@ -399,7 +547,7 @@ def _procesar_deteccion(job: DetectionJob) -> str:
             # y más legítima que existe (hand-off entre cámaras).
             if (
                 misma_camara
-                and job.zona != datos.get("zona_actual")
+                and zona_calculada != datos.get("zona_actual")
                 and ahora - datos.get("timestamp", 0.0) < TIEMPO_TELETRANSPORTACION
             ):
                 continue
@@ -445,7 +593,7 @@ def _procesar_deteccion(job: DetectionJob) -> str:
                 "centroide": huella_nueva.clone(),
                 "ultimo_update_album": ahora,
                 "hora_entrada": ahora,
-                "zona_entrada": job.zona,
+                "zona_entrada": zona_calculada,
                 "branch_id": job.branch_id,
                 "apariciones": 1,
                 "similitud_ema": 0.0,
@@ -467,9 +615,10 @@ def _procesar_deteccion(job: DetectionJob) -> str:
             ALFA_SIMILITUD_EMA * similitud_actual
             + (1 - ALFA_SIMILITUD_EMA) * datos.get("similitud_ema", similitud_actual)
         )
+        _actualizar_zona_y_tiempo(datos, zona_calculada, ahora)
         datos.update({
             "foto_b64": foto_b64,
-            "zona_actual": job.zona,
+            "zona_actual": zona_calculada,
             "similitud": datos["similitud_ema"],
             "timestamp": ahora,
             "hora_legible": time.strftime("%H:%M:%S"),
@@ -573,6 +722,11 @@ async def reloj_limpiador_background() -> None:
         with state_lock:
             vencidos = [pid for pid, datos in clientes_globales.items() if ahora - datos.get("timestamp", ahora) > TIEMPO_INACTIVIDAD_SEGUNDOS]
             sesiones = [(pid, clientes_globales.pop(pid)) for pid in vencidos]
+            for _pid, datos in sesiones:
+                # Cierra el intervalo de la última zona antes de que la sesión
+                # se pierda; si no, el tiempo desde "zona_desde" hasta ahora
+                # nunca se contabiliza en zona_tiempos.
+                datos["zona_tiempos"] = _cerrar_intervalo_zona(datos, ahora)
             for clave in [k for k, v in traductor_camaras.items() if ahora - v.get("ultimo_update", 0.0) > TIEMPO_INACTIVIDAD_SEGUNDOS]:
                 traductor_camaras.pop(clave, None)
         for pid, datos in sesiones:
@@ -584,6 +738,7 @@ async def reloj_limpiador_background() -> None:
 @app.on_event("startup")
 async def iniciar_servicios() -> None:
     global cola_reid
+    _cargar_plano_config()
     cola_reid = asyncio.Queue(maxsize=REID_QUEUE_SIZE)
     for _ in range(REID_WORKERS):
         asyncio.create_task(_worker_reid())
@@ -604,6 +759,7 @@ def health() -> dict:
 
 @app.get("/api/clientes")
 def obtener_clientes() -> dict:
+    ahora = time.time()
     with state_lock:
         clientes = []
         for persona_id, datos in clientes_globales.items():
@@ -622,6 +778,7 @@ def obtener_clientes() -> dict:
                 "genero": "Pendiente",
                 "edad": "Pendiente",
                 "foto": datos.get("foto_b64", ""),
+                "tiempos_zona": {k: round(v, 1) for k, v in _cerrar_intervalo_zona(datos, ahora).items()},
             })
     return {"clientes": clientes}
 
@@ -653,6 +810,117 @@ def resetear_memoria() -> dict:
         traductor_camaras.clear()
         heatmap_celdas.clear()
         contador_global_ids = 1
+    return {"ok": True}
+
+
+# --- Plano único multicámara: registro/calibración de cámaras y zonas de
+# negocio. Ver plano_config.json / _transformar_a_plano / _zona_en_punto. ---
+
+
+@app.get("/api/camaras")
+def listar_camaras() -> dict:
+    with state_lock:
+        camaras = [
+            {**datos, "calibrada": bool(datos.get("puntos_plano"))}
+            for datos in calibraciones_camaras.values()
+        ]
+    return {"camaras": camaras}
+
+
+@app.post("/api/camaras")
+def registrar_camara(camara: CamaraIn) -> dict:
+    with state_lock:
+        existente = calibraciones_camaras.get(camara.camara_id, {})
+        registro = {
+            "camara_id": camara.camara_id,
+            "nombre": camara.nombre,
+            "video_url": camara.video_url,
+            "puntos_plano": existente.get("puntos_plano"),
+        }
+        calibraciones_camaras[camara.camara_id] = registro
+        _guardar_plano_config()
+    return registro
+
+
+@app.delete("/api/camaras/{camara_id}")
+def borrar_camara(camara_id: str) -> dict:
+    with state_lock:
+        calibraciones_camaras.pop(camara_id, None)
+        _homografias_cache.pop(camara_id, None)
+        _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.post("/api/camaras/{camara_id}/calibracion")
+def calibrar_camara(camara_id: str, calibracion: CalibracionIn) -> dict:
+    if camara_id not in calibraciones_camaras:
+        raise HTTPException(status_code=404, detail="Cámara no registrada. Registrala primero con POST /api/camaras.")
+    if len(calibracion.puntos_plano) != 4:
+        raise HTTPException(status_code=422, detail="Se necesitan exactamente 4 puntos (TL, TR, BR, BL).")
+    if _area_poligono(calibracion.puntos_plano) < 1.0:
+        raise HTTPException(status_code=422, detail="Los 4 puntos son colineales o están duplicados; el cuadrilátero es inválido.")
+    with state_lock:
+        calibraciones_camaras[camara_id]["puntos_plano"] = calibracion.puntos_plano
+        _recalcular_homografia(camara_id)
+        _guardar_plano_config()
+        registro = calibraciones_camaras[camara_id]
+    return {"ok": True, **registro}
+
+
+@app.delete("/api/camaras/{camara_id}/calibracion")
+def borrar_calibracion(camara_id: str) -> dict:
+    if camara_id not in calibraciones_camaras:
+        raise HTTPException(status_code=404, detail="Cámara no registrada.")
+    with state_lock:
+        calibraciones_camaras[camara_id]["puntos_plano"] = None
+        _homografias_cache.pop(camara_id, None)
+        _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.get("/api/zonas")
+def listar_zonas() -> dict:
+    with state_lock:
+        return {"zones": list(zonas_negocio)}
+
+
+@app.post("/api/zonas")
+def crear_zona(zona: ZonaIn) -> dict:
+    if len(zona.polygon) < 3:
+        raise HTTPException(status_code=422, detail="La zona necesita al menos 3 puntos.")
+    with state_lock:
+        nueva = {
+            "id": f"zona_{len(zonas_negocio) + 1}_{int(time.time())}",
+            "name": zona.name,
+            "color": zona.color,
+            "polygon": zona.polygon,
+        }
+        zonas_negocio.append(nueva)
+        _guardar_plano_config()
+    return nueva
+
+
+@app.put("/api/zonas/{zona_id}")
+def editar_zona(zona_id: str, zona: ZonaIn) -> dict:
+    if len(zona.polygon) < 3:
+        raise HTTPException(status_code=422, detail="La zona necesita al menos 3 puntos.")
+    with state_lock:
+        for existente in zonas_negocio:
+            if existente["id"] == zona_id:
+                existente.update(name=zona.name, color=zona.color, polygon=zona.polygon)
+                _guardar_plano_config()
+                return existente
+    raise HTTPException(status_code=404, detail="Zona no encontrada.")
+
+
+@app.delete("/api/zonas/{zona_id}")
+def borrar_zona(zona_id: str) -> dict:
+    with state_lock:
+        restantes = [z for z in zonas_negocio if z["id"] != zona_id]
+        if len(restantes) == len(zonas_negocio):
+            raise HTTPException(status_code=404, detail="Zona no encontrada.")
+        zonas_negocio[:] = restantes
+        _guardar_plano_config()
     return {"ok": True}
 
 
