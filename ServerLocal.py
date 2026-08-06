@@ -79,6 +79,13 @@ SUPABASE_WORKERS = 1
 # Re-ID: match flexible para cambios sentado/parado, actualización estricta
 # para impedir que un recorte incorrecto contamine el centroide de una persona.
 UMBRAL_SIMILITUD = 0.36
+# Entre cámaras distintas no hay guardias de posición/zona que ayuden a
+# descartar falsos positivos (no tiene sentido comparar píxeles de encuadres
+# distintos): la similitud visual queda como único filtro. Luz y ángulo
+# varían más entre cámaras que dentro de una sola, así que exigimos más
+# certeza antes de fusionar dos identidades de cámaras distintas.
+# Punto de partida razonado, no validado aún con cámaras reales en paralelo.
+UMBRAL_SIMILITUD_CROSS_CAMARA = 0.55
 UMBRAL_ACTUALIZACION_ALBUM = 0.52
 MAX_FOTOS_ALBUM = 8
 INTERVALO_ACTUALIZACION_ALBUM = 1.0
@@ -379,36 +386,49 @@ def _procesar_deteccion(job: DetectionJob) -> str:
         bloqueados = _ids_bloqueados_en_misma_camara(job.camara_id, id_local, posicion, ahora)
         mejor_id_global: str | None = None
         mejor_puntaje = -1.0
+        mejor_misma_camara = False
         candidatos_continuidad: list[tuple[str, float]] = []
 
         for persona_id, datos in clientes_globales.items():
             if datos.get("branch_id") != job.branch_id or persona_id in bloqueados:
                 continue
-            if job.zona != datos.get("zona_actual") and ahora - datos.get("timestamp", 0.0) < TIEMPO_TELETRANSPORTACION:
+            misma_camara = datos.get("camara_id") == job.camara_id
+            # El salto de zona "imposible en tan poco tiempo" sólo tiene
+            # sentido dentro de la misma cámara: cruzar de una cámara a otra
+            # con áreas adyacentes es precisamente la transición más rápida
+            # y más legítima que existe (hand-off entre cámaras).
+            if (
+                misma_camara
+                and job.zona != datos.get("zona_actual")
+                and ahora - datos.get("timestamp", 0.0) < TIEMPO_TELETRANSPORTACION
+            ):
                 continue
 
             puntaje = _puntaje_identidad(huella_nueva, datos)
             # Bonus pequeño para recuperar una persona que se mantuvo en el
-            # mismo asiento cuando el tracker local cambia de ID.
-            if _distancia(datos.get("posicion"), posicion) <= DISTANCIA_REID_LOCAL_PX:
+            # mismo asiento cuando el tracker local cambia de ID. Sólo aplica
+            # dentro de la misma cámara: comparar píxeles entre encuadres
+            # distintos no tiene relación espacial real.
+            if misma_camara and _distancia(datos.get("posicion"), posicion) <= DISTANCIA_REID_LOCAL_PX:
                 puntaje += 0.04
             continuidad_postura = (
-                datos.get("camara_id") == job.camara_id
+                misma_camara
                 and ahora - datos.get("timestamp", 0.0) <= TIEMPO_CONTINUIDAD_POSTURA
                 and _misma_ubicacion_sentado_parado(datos.get("posicion"), posicion)
             )
             if continuidad_postura:
                 candidatos_continuidad.append((persona_id, puntaje))
             if puntaje > mejor_puntaje:
-                mejor_puntaje, mejor_id_global = puntaje, persona_id
+                mejor_puntaje, mejor_id_global, mejor_misma_camara = puntaje, persona_id, misma_camara
 
         continuidad_unica = len(candidatos_continuidad) == 1
         puede_recuperar_por_continuidad = (
             continuidad_unica
             and candidatos_continuidad[0][1] >= UMBRAL_SIMILITUD_CONTINUIDAD
         )
+        umbral_aplicable = UMBRAL_SIMILITUD if mejor_misma_camara else UMBRAL_SIMILITUD_CROSS_CAMARA
         if mejor_id_global is not None and (
-            mejor_puntaje >= UMBRAL_SIMILITUD or puede_recuperar_por_continuidad
+            mejor_puntaje >= umbral_aplicable or puede_recuperar_por_continuidad
         ):
             if puede_recuperar_por_continuidad:
                 id_global, similitud_asignada = candidatos_continuidad[0]
