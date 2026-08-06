@@ -99,8 +99,10 @@ ALFA_SIMILITUD_EMA = 0.5
 
 # Edad/género con InsightFace: durante la sesión sólo se guardan fotos (sin
 # analizarlas); el análisis real corre una única vez al cerrar la sesión, así
-# nunca compite por CPU con el worker de Re-ID en tiempo real.
-DEMO_MAX_FOTOS = 7
+# nunca compite por CPU con el worker de Re-ID en tiempo real. Más fotos no
+# cuesta CPU en vivo (sólo copiar bytes); da más chances de agarrar un ángulo
+# de cara detectable, sobre todo con la cámara lejos o en gran angular.
+DEMO_MAX_FOTOS = 12
 DEMO_INTERVALO_SEGUNDOS = 2.5
 DEMO_MIN_DET_SCORE = 0.55
 
@@ -152,10 +154,11 @@ try:
         raise RuntimeError("insightface no está instalado (pip install insightface)")
     print("Cargando modelo de edad/género (InsightFace)...")
     analizador_rostros = FaceAnalysis(name="buffalo_l", allowed_modules=["detection", "genderage"])
-    # det_size chico: en CPU, 640x640 tarda 300-1000ms (compite fuerte con el
-    # worker de Re-ID); 320x320 tarda 30-70ms con la misma calidad de
-    # detección en nuestros recortes (personas ya relativamente cerca).
-    analizador_rostros.prepare(ctx_id=-1, det_size=(320, 320))  # ctx_id=-1 => CPU
+    # 320x320 se usó mientras esto corría en tiempo real (competía por CPU con
+    # el worker de Re-ID). Ahora el análisis corre una única vez al cerrar la
+    # sesión, así que se puede subir a 480x480: mejor detección para personas
+    # cerca de la cámara (~150-200ms por foto, tolerable como evento puntual).
+    analizador_rostros.prepare(ctx_id=-1, det_size=(480, 480))  # ctx_id=-1 => CPU
     tiene_demografia = True
     print("Modelo de edad/género listo.")
 except Exception as error:
