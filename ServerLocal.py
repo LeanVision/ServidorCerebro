@@ -140,6 +140,9 @@ heatmap_celdas: dict[tuple[int, int], dict] = {}
 # Plano único: cámaras registradas/calibradas y zonas de negocio (ver arriba).
 calibraciones_camaras: dict[str, dict] = {}
 zonas_negocio: list[dict] = []
+# Contorno del local (paredes) en coordenadas del plano. Vacío = rectángulo
+# completo, que es como se comportaba antes de poder dibujarlo.
+contorno_local: list[list[float]] = []
 _homografias_cache: dict[str, np.ndarray] = {}
 contador_global_ids = 1
 cola_reid: asyncio.Queue[DetectionJob] | None = None
@@ -171,13 +174,25 @@ class CamaraIn(BaseModel):
     video_url: str
 
 
+class PosicionIn(BaseModel):
+    posicion: list[float]
+
+
 class CalibracionIn(BaseModel):
     puntos_plano: list[list[float]]
+    # Los 4 puntos equivalentes en la imagen de la cámara. Sin esto se asumen
+    # las esquinas del cuadro completo, que sólo es correcto si la cámara mira
+    # el piso perfectamente de arriba hacia abajo.
+    puntos_camara: list[list[float]] | None = None
 
 
 class ZonaIn(BaseModel):
     name: str
     color: str = "#00ff88"
+    polygon: list[list[float]]
+
+
+class ContornoIn(BaseModel):
     polygon: list[list[float]]
 
 
@@ -323,12 +338,15 @@ def _snapshot_heatmap() -> tuple[list[dict], float]:
 
 def _recalcular_homografia(camara_id: str) -> None:
     """Recalcula y cachea la matriz de homografía de una cámara calibrada."""
-    puntos_plano = calibraciones_camaras.get(camara_id, {}).get("puntos_plano")
+    registro = calibraciones_camaras.get(camara_id, {})
+    puntos_plano = registro.get("puntos_plano")
     if not puntos_plano:
         _homografias_cache.pop(camara_id, None)
         return
+    puntos_camara = registro.get("puntos_camara")
+    origen = np.float32(puntos_camara) if puntos_camara else PUNTOS_CAMARA_ORIGEN
     _homografias_cache[camara_id] = cv2.getPerspectiveTransform(
-        PUNTOS_CAMARA_ORIGEN, np.float32(puntos_plano)
+        origen, np.float32(puntos_plano)
     )
 
 
@@ -343,6 +361,7 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
             datos = json.load(archivo)
         calibraciones_camaras.update(datos.get("camaras", {}))
         zonas_negocio.extend(datos.get("zonas", []))
+        contorno_local[:] = datos.get("contorno", [])
         for camara_id in calibraciones_camaras:
             _recalcular_homografia(camara_id)
     except (OSError, json.JSONDecodeError, ValueError) as error:
@@ -351,7 +370,11 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
 
 def _guardar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
     """Escritura atómica (mismo patrón que app_limpia.py: .tmp + replace)."""
-    payload = {"camaras": calibraciones_camaras, "zonas": zonas_negocio}
+    payload = {
+        "camaras": calibraciones_camaras,
+        "zonas": zonas_negocio,
+        "contorno": contorno_local,
+    }
     ruta_tmp = f"{ruta}.tmp"
     with open(ruta_tmp, "w", encoding="utf-8") as archivo:
         json.dump(payload, archivo, ensure_ascii=False, indent=2)
@@ -836,10 +859,27 @@ def registrar_camara(camara: CamaraIn) -> dict:
             "nombre": camara.nombre,
             "video_url": camara.video_url,
             "puntos_plano": existente.get("puntos_plano"),
+            "puntos_camara": existente.get("puntos_camara"),
+            "posicion": existente.get("posicion"),
         }
         calibraciones_camaras[camara.camara_id] = registro
         _guardar_plano_config()
     return registro
+
+
+@app.post("/api/camaras/{camara_id}/posicion")
+def posicionar_camara(camara_id: str, datos: PosicionIn) -> dict:
+    """Dónde está físicamente la cámara en el plano. Es sólo para mostrarla en
+    el mapa: la proyección de lo que ve sale de la homografía, no de acá."""
+    if camara_id not in calibraciones_camaras:
+        raise HTTPException(status_code=404, detail="Cámara no registrada.")
+    if len(datos.posicion) != 2:
+        raise HTTPException(status_code=422, detail="La posición debe ser un punto [x, y].")
+    with state_lock:
+        calibraciones_camaras[camara_id]["posicion"] = datos.posicion
+        _guardar_plano_config()
+        registro = calibraciones_camaras[camara_id]
+    return {"ok": True, **registro}
 
 
 @app.delete("/api/camaras/{camara_id}")
@@ -859,8 +899,14 @@ def calibrar_camara(camara_id: str, calibracion: CalibracionIn) -> dict:
         raise HTTPException(status_code=422, detail="Se necesitan exactamente 4 puntos (TL, TR, BR, BL).")
     if _area_poligono(calibracion.puntos_plano) < 1.0:
         raise HTTPException(status_code=422, detail="Los 4 puntos son colineales o están duplicados; el cuadrilátero es inválido.")
+    if calibracion.puntos_camara is not None:
+        if len(calibracion.puntos_camara) != 4:
+            raise HTTPException(status_code=422, detail="Se necesitan exactamente 4 puntos sobre la imagen de la cámara.")
+        if _area_poligono(calibracion.puntos_camara) < 1.0:
+            raise HTTPException(status_code=422, detail="Los 4 puntos marcados sobre el video son colineales o están duplicados.")
     with state_lock:
         calibraciones_camaras[camara_id]["puntos_plano"] = calibracion.puntos_plano
+        calibraciones_camaras[camara_id]["puntos_camara"] = calibracion.puntos_camara
         _recalcular_homografia(camara_id)
         _guardar_plano_config()
         registro = calibraciones_camaras[camara_id]
@@ -873,7 +919,38 @@ def borrar_calibracion(camara_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Cámara no registrada.")
     with state_lock:
         calibraciones_camaras[camara_id]["puntos_plano"] = None
+        calibraciones_camaras[camara_id]["puntos_camara"] = None
         _homografias_cache.pop(camara_id, None)
+        _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.get("/api/plano")
+def obtener_plano() -> dict:
+    with state_lock:
+        return {
+            "width": HEATMAP_WIDTH,
+            "height": HEATMAP_HEIGHT,
+            "contorno": list(contorno_local),
+        }
+
+
+@app.post("/api/plano/contorno")
+def guardar_contorno(contorno: ContornoIn) -> dict:
+    if len(contorno.polygon) < 3:
+        raise HTTPException(status_code=422, detail="El contorno del local necesita al menos 3 puntos.")
+    if _area_poligono(contorno.polygon) < 1.0:
+        raise HTTPException(status_code=422, detail="El contorno es degenerado (puntos colineales o duplicados).")
+    with state_lock:
+        contorno_local[:] = contorno.polygon
+        _guardar_plano_config()
+    return {"ok": True, "contorno": list(contorno_local)}
+
+
+@app.delete("/api/plano/contorno")
+def borrar_contorno() -> dict:
+    with state_lock:
+        contorno_local.clear()
         _guardar_plano_config()
     return {"ok": True}
 
@@ -949,12 +1026,14 @@ def panel_calibracion() -> str:
       .item .acciones{margin-top:6px}
       .item button{padding:5px 8px;font-size:12px}
       .previa-wrap{position:relative;width:100%;border-radius:8px;overflow:hidden;background:#111827;aspect-ratio:640/480}
-      .previa-wrap img{width:100%;height:100%;object-fit:cover;display:block}
-      .esquina{position:absolute;width:20px;height:20px;border-radius:50%;background:#facc15;color:#111827;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
-      .e-tl{top:4px;left:4px}.e-tr{top:4px;right:4px}.e-br{bottom:4px;right:4px}.e-bl{bottom:4px;left:4px}
+      .previa-wrap img{width:100%;height:100%;object-fit:contain;display:block}
+      #video-canvas{position:absolute;inset:0;width:100%;height:100%}
+      #video-canvas.activo{cursor:crosshair;box-shadow:inset 0 0 0 3px #facc15}
       #instrucciones{min-height:20px;color:#facc15;font-size:14px}
       .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px}
       .badge.si{background:#16653477;color:#86efac}.badge.no{background:#7f1d1d77;color:#fca5a5}
+      .badge.pos{background:#1e3a8a77;color:#93c5fd}
+      .paso{font-size:12px;color:#94a3b8;margin:6px 0 0}
     </style></head><body>
     <header><h1 style="margin:0">Calibración — plano único</h1><a href="/">&larr; Volver al dashboard</a></header>
     <main class="layout">
@@ -969,19 +1048,26 @@ def panel_calibracion() -> str:
         <h2>Vista en vivo</h2>
         <div class="previa-wrap">
           <img id="video-previa" src="">
-          <div class="esquina e-tl">1</div><div class="esquina e-tr">2</div>
-          <div class="esquina e-br">3</div><div class="esquina e-bl">4</div>
+          <canvas id="video-canvas" width="640" height="480"></canvas>
         </div>
+        <p class="paso" id="paso-video">Seleccioná una cámara para ver su video.</p>
       </section>
 
       <section class="panel map">
-        <h2>Plano del local (640×480, a escala)</h2>
+        <h2>Plano del local</h2>
         <div>
-          <button onclick="modoCalibrar()">Calibrar cámara seleccionada</button>
-          <button onclick="modoZona()">Dibujar zona de negocio</button>
+          <button onclick="modoContorno()">1. Dibujar local</button>
+          <button onclick="modoPosicion()">2. Ubicar cámara</button>
+          <button onclick="modoCalibrar()">3. Calibrar cámara</button>
+          <button onclick="modoZona()">4. Dibujar zona</button>
         </div>
-        <p id="instrucciones">Elegí una cámara y un modo para empezar.</p>
+        <p id="instrucciones">Empezá dibujando la forma del local con el paso 1.</p>
         <div id="map"><canvas id="plano" width="640" height="480"></canvas></div>
+        <div id="controles-contorno" style="display:none">
+          <button onclick="guardarContorno()">Guardar forma del local</button>
+          <button class="gris" onclick="limpiarDibujo()">Limpiar</button>
+          <button class="rojo" onclick="borrarContorno()">Borrar forma guardada</button>
+        </div>
         <div id="controles-calibracion" style="display:none">
           <button onclick="confirmarCalibracion()">Confirmar calibración</button>
           <button class="gris" onclick="limpiarDibujo()">Rehacer</button>
@@ -1005,17 +1091,20 @@ def panel_calibracion() -> str:
     <script>
       const $=s=>document.querySelector(s);
       const canvas=$('#plano'), ctx=canvas.getContext('2d');
+      const vcanvas=$('#video-canvas'), vctx=vcanvas.getContext('2d');
       const PALETA=['#38bdf8','#f472b6','#a78bfa','#fb923c','#4ade80'];
-      let camaras=[], zonas=[], camaraSel=null, modo=null;
-      let puntosCalibracion=[], poligonoZona=[];
+      let camaras=[], zonas=[], contorno=[], camaraSel=null, modo=null;
+      let puntosCalibracion=[], poligonoZona=[], poligonoContorno=[], puntosVideo=[];
+      let faseCalibracion='video';
 
-      function pointFromEvent(event){
-        const rect=canvas.getBoundingClientRect();
+      function pointFrom(event,el,w,h){
+        const rect=el.getBoundingClientRect();
         return [
-          Math.round((event.clientX-rect.left)*(canvas.width/rect.width)),
-          Math.round((event.clientY-rect.top)*(canvas.height/rect.height)),
+          Math.round((event.clientX-rect.left)*(w/rect.width)),
+          Math.round((event.clientY-rect.top)*(h/rect.height)),
         ];
       }
+      const pointFromEvent=e=>pointFrom(e,canvas,canvas.width,canvas.height);
 
       function colorCamara(camara_id){
         const idx=camaras.findIndex(c=>c.camara_id===camara_id);
@@ -1033,52 +1122,135 @@ def panel_calibracion() -> str:
         if(etiqueta) {ctx.fillStyle='white';ctx.fillText(etiqueta,puntos[0][0]+5,puntos[0][1]-5);}
       }
 
+      function marcarPuntos(contexto,puntos,color,numerar){
+        puntos.forEach((p,i)=>{
+          contexto.fillStyle=color;contexto.beginPath();contexto.arc(p[0],p[1],6,0,7);contexto.fill();
+          if(numerar){contexto.fillStyle='#111827';contexto.font='bold 11px sans-serif';contexto.fillText(i+1,p[0]-3,p[1]+4);}
+        });
+      }
+
+      function dibujarCamara(c){
+        if(!c.posicion) return;
+        const [x,y]=c.posicion, color=colorCamara(c.camara_id);
+        ctx.beginPath();ctx.arc(x,y,11,0,7);
+        ctx.fillStyle=color;ctx.fill();
+        ctx.strokeStyle='#0f172a';ctx.lineWidth=2;ctx.stroke();
+        ctx.fillStyle='#0f172a';ctx.font='bold 12px sans-serif';ctx.fillText('C',x-4,y+4);
+        ctx.fillStyle=color;ctx.font='12px sans-serif';
+        ctx.fillText(c.nombre||c.camara_id,x+15,y+4);
+      }
+
       function redraw(){
         ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(contorno.length>=3){
+          ctx.beginPath();ctx.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>ctx.lineTo(...p));ctx.closePath();
+          ctx.fillStyle='#1e293b88';ctx.fill();
+          ctx.strokeStyle='#94a3b8';ctx.lineWidth=3;ctx.stroke();
+        }
         zonas.forEach(z=>dibujarPoligono(z.polygon,z.color||'#00ff88',true,z.name,false));
-        camaras.forEach(c=>{if(c.puntos_plano) dibujarPoligono(c.puntos_plano,colorCamara(c.camara_id),false,c.nombre||c.camara_id,true);});
-        if(modo==='calibrar'){
+        camaras.forEach(c=>{if(c.puntos_plano) dibujarPoligono(c.puntos_plano,colorCamara(c.camara_id),false,null,true);});
+        camaras.forEach(dibujarCamara);
+        if(modo==='calibrar'&&faseCalibracion==='plano'){
           dibujarPoligono(puntosCalibracion,'#facc15',false,null,false);
-          puntosCalibracion.forEach((p,i)=>{ctx.fillStyle='#facc15';ctx.beginPath();ctx.arc(p[0],p[1],5,0,7);ctx.fill();ctx.fillStyle='#111827';ctx.font='11px sans-serif';ctx.fillText(i+1,p[0]-3,p[1]+4);});
+          marcarPuntos(ctx,puntosCalibracion,'#facc15',true);
         } else if(modo==='zona'){
           dibujarPoligono(poligonoZona,'#facc15',poligonoZona.length>=3,null,false);
-          poligonoZona.forEach(p=>{ctx.fillStyle='#facc15';ctx.beginPath();ctx.arc(p[0],p[1],4,0,7);ctx.fill();});
+          marcarPuntos(ctx,poligonoZona,'#facc15',false);
+        } else if(modo==='contorno'){
+          dibujarPoligono(poligonoContorno,'#38bdf8',poligonoContorno.length>=3,null,false);
+          marcarPuntos(ctx,poligonoContorno,'#38bdf8',false);
         }
       }
 
-      const PASOS_CALIBRACION=['esquina SUPERIOR IZQUIERDA (1)','esquina SUPERIOR DERECHA (2)','esquina INFERIOR DERECHA (3)','esquina INFERIOR IZQUIERDA (4)'];
+      function redrawVideo(){
+        vctx.clearRect(0,0,vcanvas.width,vcanvas.height);
+        if(modo!=='calibrar') return;
+        dibujarEn(vctx,puntosVideo,'#facc15');
+        marcarPuntos(vctx,puntosVideo,'#facc15',true);
+      }
+      function dibujarEn(contexto,puntos,color){
+        if(puntos.length<2) return;
+        contexto.beginPath();contexto.moveTo(...puntos[0]);puntos.slice(1).forEach(p=>contexto.lineTo(...p));
+        if(puntos.length>=3) contexto.closePath();
+        contexto.strokeStyle=color;contexto.lineWidth=2;contexto.stroke();
+      }
+
+      function ocultarControles(){
+        $('#controles-calibracion').style.display='none';
+        $('#controles-zona').style.display='none';
+        $('#controles-contorno').style.display='none';
+        vcanvas.classList.remove('activo');
+      }
+
+      function modoContorno(){
+        modo='contorno'; poligonoContorno=[];
+        ocultarControles();
+        $('#controles-contorno').style.display='block';
+        $('#instrucciones').textContent='Dibujá la forma del local: un clic por esquina (puede ser en L o irregular), doble clic para cerrar.';
+        redraw(); redrawVideo();
+      }
+
+      function modoPosicion(){
+        if(!camaraSel) return alert('Elegí primero una cámara de la lista.');
+        modo='posicion';
+        ocultarControles();
+        $('#instrucciones').textContent=`Hacé clic en el plano donde está físicamente la cámara "${camaraSel}".`;
+        redraw(); redrawVideo();
+      }
 
       function modoCalibrar(){
         if(!camaraSel) return alert('Elegí primero una cámara de la lista.');
-        modo='calibrar'; puntosCalibracion=[];
-        $('#controles-calibracion').style.display='none';
-        $('#controles-zona').style.display='none';
-        $('#instrucciones').textContent=`Calibrando "${camaraSel}" — clic 1 de 4: ${PASOS_CALIBRACION[0]} de la cámara, en el plano.`;
-        redraw();
+        modo='calibrar'; faseCalibracion='video'; puntosVideo=[]; puntosCalibracion=[];
+        ocultarControles();
+        vcanvas.classList.add('activo');
+        $('#instrucciones').textContent='Paso A — marcá 4 puntos del PISO sobre el video (izquierda). Elegí referencias reconocibles: esquinas de una baldosa, del mostrador, etc.';
+        $('#paso-video').textContent='Clic 1 de 4 sobre el video.';
+        redraw(); redrawVideo();
       }
+
       function modoZona(){
         modo='zona'; poligonoZona=[];
-        $('#controles-calibracion').style.display='none';
+        ocultarControles();
         $('#controles-zona').style.display='block';
         $('#instrucciones').textContent='Clic para agregar vértices de la zona (mínimo 3), doble clic para cerrar.';
-        redraw();
+        redraw(); redrawVideo();
       }
+
       function limpiarDibujo(){
-        puntosCalibracion=[]; poligonoZona=[];
-        if(modo==='calibrar') modoCalibrar(); else redraw();
+        puntosCalibracion=[]; poligonoZona=[]; poligonoContorno=[]; puntosVideo=[];
+        if(modo==='calibrar') modoCalibrar();
+        else if(modo==='contorno') modoContorno();
+        else {redraw(); redrawVideo();}
       }
+
+      vcanvas.addEventListener('click',(event)=>{
+        if(modo!=='calibrar'||faseCalibracion!=='video') return;
+        if(puntosVideo.length>=4) return;
+        puntosVideo.push(pointFrom(event,vcanvas,640,480));
+        redrawVideo();
+        if(puntosVideo.length<4){
+          $('#paso-video').textContent=`Clic ${puntosVideo.length+1} de 4 sobre el video.`;
+        } else {
+          faseCalibracion='plano';
+          vcanvas.classList.remove('activo');
+          $('#paso-video').textContent='4 puntos marcados en el video.';
+          $('#instrucciones').textContent='Paso B — ahora marcá esos MISMOS 4 puntos en el plano, en el mismo orden (1, 2, 3, 4).';
+        }
+      });
 
       canvas.addEventListener('click',(event)=>{
         if(!modo) return;
         const p=pointFromEvent(event);
-        if(modo==='calibrar'){
-          if(puntosCalibracion.length>=4) return;
+        if(modo==='posicion'){
+          guardarPosicion(p);
+        } else if(modo==='calibrar'){
+          if(faseCalibracion!=='plano'||puntosCalibracion.length>=4) return;
           puntosCalibracion.push(p);
           redraw();
           if(puntosCalibracion.length<4){
-            $('#instrucciones').textContent=`Clic ${puntosCalibracion.length+1} de 4: ${PASOS_CALIBRACION[puntosCalibracion.length]} de la cámara, en el plano.`;
+            $('#instrucciones').textContent=`Paso B — marcá el punto ${puntosCalibracion.length+1} de 4 en el plano (el mismo que marcaste en el video).`;
           } else {
-            $('#instrucciones').textContent='4 puntos listos. Revisá el cuadrilátero dibujado y confirmá, o rehacé.';
+            $('#instrucciones').textContent='Los 4 pares están listos. Revisá y confirmá, o rehacé.';
             $('#controles-calibracion').style.display='block';
           }
         } else if(modo==='zona'){
@@ -1086,19 +1258,51 @@ def panel_calibracion() -> str:
             if(poligonoZona.length>=3) $('#instrucciones').textContent='Zona lista — ponele nombre y guardala.';
             return;
           }
-          poligonoZona.push(p);
-          redraw();
+          poligonoZona.push(p); redraw();
+        } else if(modo==='contorno'){
+          if(event.detail===2){
+            if(poligonoContorno.length>=3) $('#instrucciones').textContent='Forma lista — guardala.';
+            return;
+          }
+          poligonoContorno.push(p); redraw();
         }
       });
 
+      async function guardarPosicion(punto){
+        const r=await fetch(`/api/camaras/${camaraSel}/posicion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({posicion:punto})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al ubicar la cámara');return;}
+        modo=null;
+        $('#instrucciones').textContent='Ubicación guardada. Seguí con el paso 3 para calibrar lo que ve.';
+        await cargarCamaras();
+      }
+
+      async function guardarContorno(){
+        if(poligonoContorno.length<3) return alert('Dibujá al menos 3 puntos.');
+        const r=await fetch('/api/plano/contorno',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({polygon:poligonoContorno})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al guardar la forma');return;}
+        modo=null; poligonoContorno=[];
+        ocultarControles();
+        $('#instrucciones').textContent='Forma del local guardada.';
+        await cargarPlano();
+      }
+
+      async function borrarContorno(){
+        if(!confirm('¿Borrar la forma del local?')) return;
+        await fetch('/api/plano/contorno',{method:'DELETE'});
+        poligonoContorno=[]; modo=null; ocultarControles();
+        await cargarPlano();
+      }
+
       async function confirmarCalibracion(){
-        const r=await fetch(`/api/camaras/${camaraSel}/calibracion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos_plano:puntosCalibracion})});
+        const r=await fetch(`/api/camaras/${camaraSel}/calibracion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos_plano:puntosCalibracion,puntos_camara:puntosVideo})});
         const data=await r.json();
         if(!r.ok){alert(data.detail||'Error al calibrar');return;}
-        modo=null; puntosCalibracion=[];
-        $('#controles-calibracion').style.display='none';
-        $('#instrucciones').textContent='Calibración guardada.';
-        await cargarCamaras();
+        modo=null; puntosCalibracion=[]; puntosVideo=[];
+        ocultarControles();
+        $('#instrucciones').textContent='Calibración guardada. Lo que ve esta cámara ya se proyecta al plano.';
+        await cargarCamaras(); redrawVideo();
       }
 
       async function guardarZona(){
@@ -1124,7 +1328,10 @@ def panel_calibracion() -> str:
         camaraSel=id;
         const cam=camaras.find(c=>c.camara_id===id);
         $('#video-previa').src=cam?cam.video_url:'';
-        cargarCamaras();
+        $('#paso-video').textContent=cam?`Viendo "${cam.nombre||id}".`:'';
+        if(modo==='calibrar'||modo==='posicion'){modo=null; ocultarControles(); $('#instrucciones').textContent='Cámara cambiada: elegí de nuevo el paso 2 o 3.';}
+        puntosVideo=[]; puntosCalibracion=[];
+        cargarCamaras(); redrawVideo();
       }
       async function borrarCalibracion(id){
         await fetch(`/api/camaras/${id}/calibracion`,{method:'DELETE'});
@@ -1145,7 +1352,10 @@ def panel_calibracion() -> str:
         camaras=(await (await fetch('/api/camaras')).json()).camaras;
         $('#lista-camaras').innerHTML=camaras.map(c=>`
           <div class="item" style="border-left:4px solid ${colorCamara(c.camara_id)}${camaraSel===c.camara_id?';outline:2px solid #7dd3fc':''}">
-            <b>${c.nombre||c.camara_id} <span class="badge ${c.calibrada?'si':'no'}">${c.calibrada?'calibrada':'sin calibrar'}</span></b>
+            <b>${c.nombre||c.camara_id}
+              <span class="badge ${c.posicion?'pos':'no'}">${c.posicion?'ubicada':'sin ubicar'}</span>
+              <span class="badge ${c.calibrada?'si':'no'}">${c.calibrada?'calibrada':'sin calibrar'}</span>
+            </b>
             ${c.camara_id}
             <div class="acciones">
               <button onclick="seleccionarCamara('${c.camara_id}')">Seleccionar</button>
@@ -1164,8 +1374,12 @@ def panel_calibracion() -> str:
           </div>`).join('')||'<p>Sin zonas todavía.</p>';
         redraw();
       }
+      async function cargarPlano(){
+        contorno=(await (await fetch('/api/plano')).json()).contorno||[];
+        redraw();
+      }
 
-      cargarCamaras(); cargarZonas();
+      cargarPlano(); cargarCamaras(); cargarZonas();
     </script></body></html>
     """
 
@@ -1187,8 +1401,13 @@ def panel_web() -> str:
     <script>
       const heatmap=h337.create({container:document.querySelector('#heatmap'),radius:38,maxOpacity:.72,blur:.82});
       const $=s=>document.querySelector(s);
-      async function actualizar(){try{const [c,h,m,z]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';heatmap.setData({max:Math.max(3,h.max||0),data:h.puntos});$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;dibujarZonas(z.zones)}catch(e){console.warn(e)}}
-      function dibujarZonas(zonas){const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);zonas.forEach(z=>{if(!z.polygon||z.polygon.length<3)return;x.beginPath();x.moveTo(...z.polygon[0]);z.polygon.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle=z.color||'#00ff88';x.lineWidth=2;x.stroke();x.fillStyle=(z.color||'#00ff88')+'33';x.fill();x.fillStyle='white';x.fillText(z.name,z.polygon[0][0]+5,z.polygon[0][1]-5)})}
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';heatmap.setData({max:Math.max(3,h.max||0),data:h.puntos});$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
+      function dibujarPlano(zonas,contorno,camaras){
+        const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+        if(contorno.length>=3){x.beginPath();x.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle='#94a3b8';x.lineWidth=3;x.stroke()}
+        zonas.forEach(z=>{if(!z.polygon||z.polygon.length<3)return;x.beginPath();x.moveTo(...z.polygon[0]);z.polygon.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle=z.color||'#00ff88';x.lineWidth=2;x.stroke();x.fillStyle=(z.color||'#00ff88')+'33';x.fill();x.fillStyle='white';x.fillText(z.name,z.polygon[0][0]+5,z.polygon[0][1]-5)});
+        camaras.forEach(cm=>{if(!cm.posicion)return;const[px,py]=cm.posicion;x.beginPath();x.arc(px,py,10,0,7);x.fillStyle='#38bdf8';x.fill();x.strokeStyle='#0f172a';x.lineWidth=2;x.stroke();x.fillStyle='#0f172a';x.font='bold 11px sans-serif';x.fillText('C',px-3,py+4);x.fillStyle='#7dd3fc';x.font='11px sans-serif';x.fillText(cm.nombre||cm.camara_id,px+14,py+4)});
+      }
       async function resetear(){if(confirm('¿Borrar memoria y mapa?')){await fetch('/api/reset',{method:'POST'});actualizar()}} actualizar();setInterval(actualizar,1500);
     </script></body></html>
     """
