@@ -4,7 +4,10 @@
 # el servicio. Pensado para correr cada pocos minutos vía cerebro-autopull.timer.
 set -euo pipefail
 
-REPO_DIR="/home/serverpruebas/leanvision/CerebroLocal"
+# Se ubica solo a partir de dónde vive el script (deploy/<esto>.sh), no
+# hardcodea el usuario/ruta de ninguna Pi en particular: el mismo archivo,
+# tal cual viene del repo, sirve para cualquier Pi sin importar su usuario.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 git fetch origin main
