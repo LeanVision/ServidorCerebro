@@ -924,6 +924,252 @@ def borrar_zona(zona_id: str) -> dict:
     return {"ok": True}
 
 
+@app.get("/calibrar", response_class=HTMLResponse)
+def panel_calibracion() -> str:
+    return """
+    <!doctype html><html lang="es"><head><meta charset="utf-8">
+    <title>LeanVision Cerebro — Calibración</title>
+    <style>
+      body{margin:0;padding:24px;background:#0f172a;color:#e2e8f0;font:15px system-ui,sans-serif}
+      header,.layout{max-width:1280px;margin:auto}
+      header{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+      header a{color:#7dd3fc}
+      .layout{display:flex;gap:24px;align-items:start;flex-wrap:wrap}
+      .panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}
+      .lado{min-width:260px;flex:0 0 260px}
+      .map{width:640px;max-width:100%;box-sizing:border-box}
+      #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827;background-image:linear-gradient(#33415555 1px,transparent 1px),linear-gradient(90deg,#33415555 1px,transparent 1px);background-size:40px 40px}
+      #plano{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+      input,select{width:100%;box-sizing:border-box;padding:7px 8px;margin:4px 0;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0}
+      button{padding:8px 12px;background:#2563eb;color:white;border:0;border-radius:6px;cursor:pointer;margin:3px 3px 3px 0}
+      button.rojo{background:#ef4444}button.gris{background:#475569}
+      .fila{display:flex;gap:6px}.fila input{flex:1}
+      .item{background:#334155;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px}
+      .item b{display:block}
+      .item .acciones{margin-top:6px}
+      .item button{padding:5px 8px;font-size:12px}
+      .previa-wrap{position:relative;width:100%;border-radius:8px;overflow:hidden;background:#111827;aspect-ratio:640/480}
+      .previa-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+      .esquina{position:absolute;width:20px;height:20px;border-radius:50%;background:#facc15;color:#111827;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+      .e-tl{top:4px;left:4px}.e-tr{top:4px;right:4px}.e-br{bottom:4px;right:4px}.e-bl{bottom:4px;left:4px}
+      #instrucciones{min-height:20px;color:#facc15;font-size:14px}
+      .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px}
+      .badge.si{background:#16653477;color:#86efac}.badge.no{background:#7f1d1d77;color:#fca5a5}
+    </style></head><body>
+    <header><h1 style="margin:0">Calibración — plano único</h1><a href="/">&larr; Volver al dashboard</a></header>
+    <main class="layout">
+
+      <section class="panel lado">
+        <h2>Cámaras</h2>
+        <div class="fila"><input id="c_id" placeholder="ID (ej: camara_zero_1)"></div>
+        <div class="fila"><input id="c_nombre" placeholder="Nombre"></div>
+        <div class="fila"><input id="c_url" placeholder="http://IP:8002/video"></div>
+        <button onclick="registrarCamara()">Registrar / actualizar</button>
+        <div id="lista-camaras" style="margin-top:12px"></div>
+        <h2>Vista en vivo</h2>
+        <div class="previa-wrap">
+          <img id="video-previa" src="">
+          <div class="esquina e-tl">1</div><div class="esquina e-tr">2</div>
+          <div class="esquina e-br">3</div><div class="esquina e-bl">4</div>
+        </div>
+      </section>
+
+      <section class="panel map">
+        <h2>Plano del local (640×480, a escala)</h2>
+        <div>
+          <button onclick="modoCalibrar()">Calibrar cámara seleccionada</button>
+          <button onclick="modoZona()">Dibujar zona de negocio</button>
+        </div>
+        <p id="instrucciones">Elegí una cámara y un modo para empezar.</p>
+        <div id="map"><canvas id="plano" width="640" height="480"></canvas></div>
+        <div id="controles-calibracion" style="display:none">
+          <button onclick="confirmarCalibracion()">Confirmar calibración</button>
+          <button class="gris" onclick="limpiarDibujo()">Rehacer</button>
+        </div>
+        <div id="controles-zona" style="display:none">
+          <div class="fila">
+            <input id="z_nombre" placeholder="Nombre de la zona">
+            <input id="z_color" type="color" value="#00ff88" style="width:44px;padding:2px">
+          </div>
+          <button onclick="guardarZona()">Guardar zona (doble clic para cerrar el polígono)</button>
+          <button class="gris" onclick="limpiarDibujo()">Limpiar</button>
+        </div>
+      </section>
+
+      <section class="panel lado">
+        <h2>Zonas de negocio</h2>
+        <div id="lista-zonas"></div>
+      </section>
+
+    </main>
+    <script>
+      const $=s=>document.querySelector(s);
+      const canvas=$('#plano'), ctx=canvas.getContext('2d');
+      const PALETA=['#38bdf8','#f472b6','#a78bfa','#fb923c','#4ade80'];
+      let camaras=[], zonas=[], camaraSel=null, modo=null;
+      let puntosCalibracion=[], poligonoZona=[];
+
+      function pointFromEvent(event){
+        const rect=canvas.getBoundingClientRect();
+        return [
+          Math.round((event.clientX-rect.left)*(canvas.width/rect.width)),
+          Math.round((event.clientY-rect.top)*(canvas.height/rect.height)),
+        ];
+      }
+
+      function colorCamara(camara_id){
+        const idx=camaras.findIndex(c=>c.camara_id===camara_id);
+        return PALETA[idx>=0?idx%PALETA.length:0];
+      }
+
+      function dibujarPoligono(puntos,color,relleno,etiqueta,punteado){
+        if(!puntos||puntos.length<2) return;
+        ctx.setLineDash(punteado?[6,4]:[]);
+        ctx.beginPath();ctx.moveTo(...puntos[0]);puntos.slice(1).forEach(p=>ctx.lineTo(...p));
+        if(puntos.length>=3){ctx.closePath();}
+        ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+        if(relleno&&puntos.length>=3){ctx.fillStyle=color+'33';ctx.fill();}
+        ctx.setLineDash([]);
+        if(etiqueta) {ctx.fillStyle='white';ctx.fillText(etiqueta,puntos[0][0]+5,puntos[0][1]-5);}
+      }
+
+      function redraw(){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        zonas.forEach(z=>dibujarPoligono(z.polygon,z.color||'#00ff88',true,z.name,false));
+        camaras.forEach(c=>{if(c.puntos_plano) dibujarPoligono(c.puntos_plano,colorCamara(c.camara_id),false,c.nombre||c.camara_id,true);});
+        if(modo==='calibrar'){
+          dibujarPoligono(puntosCalibracion,'#facc15',false,null,false);
+          puntosCalibracion.forEach((p,i)=>{ctx.fillStyle='#facc15';ctx.beginPath();ctx.arc(p[0],p[1],5,0,7);ctx.fill();ctx.fillStyle='#111827';ctx.font='11px sans-serif';ctx.fillText(i+1,p[0]-3,p[1]+4);});
+        } else if(modo==='zona'){
+          dibujarPoligono(poligonoZona,'#facc15',poligonoZona.length>=3,null,false);
+          poligonoZona.forEach(p=>{ctx.fillStyle='#facc15';ctx.beginPath();ctx.arc(p[0],p[1],4,0,7);ctx.fill();});
+        }
+      }
+
+      const PASOS_CALIBRACION=['esquina SUPERIOR IZQUIERDA (1)','esquina SUPERIOR DERECHA (2)','esquina INFERIOR DERECHA (3)','esquina INFERIOR IZQUIERDA (4)'];
+
+      function modoCalibrar(){
+        if(!camaraSel) return alert('Elegí primero una cámara de la lista.');
+        modo='calibrar'; puntosCalibracion=[];
+        $('#controles-calibracion').style.display='none';
+        $('#controles-zona').style.display='none';
+        $('#instrucciones').textContent=`Calibrando "${camaraSel}" — clic 1 de 4: ${PASOS_CALIBRACION[0]} de la cámara, en el plano.`;
+        redraw();
+      }
+      function modoZona(){
+        modo='zona'; poligonoZona=[];
+        $('#controles-calibracion').style.display='none';
+        $('#controles-zona').style.display='block';
+        $('#instrucciones').textContent='Clic para agregar vértices de la zona (mínimo 3), doble clic para cerrar.';
+        redraw();
+      }
+      function limpiarDibujo(){
+        puntosCalibracion=[]; poligonoZona=[];
+        if(modo==='calibrar') modoCalibrar(); else redraw();
+      }
+
+      canvas.addEventListener('click',(event)=>{
+        if(!modo) return;
+        const p=pointFromEvent(event);
+        if(modo==='calibrar'){
+          if(puntosCalibracion.length>=4) return;
+          puntosCalibracion.push(p);
+          redraw();
+          if(puntosCalibracion.length<4){
+            $('#instrucciones').textContent=`Clic ${puntosCalibracion.length+1} de 4: ${PASOS_CALIBRACION[puntosCalibracion.length]} de la cámara, en el plano.`;
+          } else {
+            $('#instrucciones').textContent='4 puntos listos. Revisá el cuadrilátero dibujado y confirmá, o rehacé.';
+            $('#controles-calibracion').style.display='block';
+          }
+        } else if(modo==='zona'){
+          if(event.detail===2){
+            if(poligonoZona.length>=3) $('#instrucciones').textContent='Zona lista — ponele nombre y guardala.';
+            return;
+          }
+          poligonoZona.push(p);
+          redraw();
+        }
+      });
+
+      async function confirmarCalibracion(){
+        const r=await fetch(`/api/camaras/${camaraSel}/calibracion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos_plano:puntosCalibracion})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al calibrar');return;}
+        modo=null; puntosCalibracion=[];
+        $('#controles-calibracion').style.display='none';
+        $('#instrucciones').textContent='Calibración guardada.';
+        await cargarCamaras();
+      }
+
+      async function guardarZona(){
+        const nombre=$('#z_nombre').value.trim();
+        if(!nombre) return alert('Ponele un nombre a la zona.');
+        if(poligonoZona.length<3) return alert('Dibujá al menos 3 puntos.');
+        const r=await fetch('/api/zonas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nombre,color:$('#z_color').value,polygon:poligonoZona})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al guardar la zona');return;}
+        poligonoZona=[]; $('#z_nombre').value='';
+        $('#instrucciones').textContent='Zona guardada.';
+        await cargarZonas();
+      }
+
+      async function registrarCamara(){
+        const camara_id=$('#c_id').value.trim(), video_url=$('#c_url').value.trim();
+        if(!camara_id||!video_url) return alert('ID y URL de video son obligatorios.');
+        await fetch('/api/camaras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({camara_id,nombre:$('#c_nombre').value.trim(),video_url})});
+        $('#c_id').value='';$('#c_nombre').value='';$('#c_url').value='';
+        await cargarCamaras();
+      }
+      function seleccionarCamara(id){
+        camaraSel=id;
+        const cam=camaras.find(c=>c.camara_id===id);
+        $('#video-previa').src=cam?cam.video_url:'';
+        cargarCamaras();
+      }
+      async function borrarCalibracion(id){
+        await fetch(`/api/camaras/${id}/calibracion`,{method:'DELETE'});
+        await cargarCamaras();
+      }
+      async function quitarCamara(id){
+        if(!confirm(`¿Quitar la cámara "${id}"?`)) return;
+        await fetch(`/api/camaras/${id}`,{method:'DELETE'});
+        if(camaraSel===id) camaraSel=null;
+        await cargarCamaras();
+      }
+      async function borrarZona(id){
+        await fetch(`/api/zonas/${id}`,{method:'DELETE'});
+        await cargarZonas();
+      }
+
+      async function cargarCamaras(){
+        camaras=(await (await fetch('/api/camaras')).json()).camaras;
+        $('#lista-camaras').innerHTML=camaras.map(c=>`
+          <div class="item" style="border-left:4px solid ${colorCamara(c.camara_id)}${camaraSel===c.camara_id?';outline:2px solid #7dd3fc':''}">
+            <b>${c.nombre||c.camara_id} <span class="badge ${c.calibrada?'si':'no'}">${c.calibrada?'calibrada':'sin calibrar'}</span></b>
+            ${c.camara_id}
+            <div class="acciones">
+              <button onclick="seleccionarCamara('${c.camara_id}')">Seleccionar</button>
+              ${c.calibrada?`<button class="gris" onclick="borrarCalibracion('${c.camara_id}')">Borrar calibración</button>`:''}
+              <button class="rojo" onclick="quitarCamara('${c.camara_id}')">Quitar</button>
+            </div>
+          </div>`).join('')||'<p>Sin cámaras registradas.</p>';
+        redraw();
+      }
+      async function cargarZonas(){
+        zonas=(await (await fetch('/api/zonas')).json()).zones;
+        $('#lista-zonas').innerHTML=zonas.map(z=>`
+          <div class="item" style="border-left:4px solid ${z.color}">
+            <b>${z.name}</b>
+            <div class="acciones"><button class="rojo" onclick="borrarZona('${z.id}')">Borrar</button></div>
+          </div>`).join('')||'<p>Sin zonas todavía.</p>';
+        redraw();
+      }
+
+      cargarCamaras(); cargarZonas();
+    </script></body></html>
+    """
+
+
 @app.get("/", response_class=HTMLResponse)
 def panel_web() -> str:
     return """
