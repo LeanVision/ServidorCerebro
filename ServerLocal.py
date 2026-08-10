@@ -26,7 +26,7 @@ import torch
 import torch.nn.functional as F
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from torchreid.utils import FeatureExtractor
 
@@ -81,6 +81,12 @@ PLANO_CONFIG_PATH = os.getenv("LEANVISION_PLANO_CONFIG", "plano_config.json")
 PUNTOS_CAMARA_ORIGEN = np.float32(
     [[0, 0], [HEATMAP_WIDTH, 0], [HEATMAP_WIDTH, HEATMAP_HEIGHT], [0, HEATMAP_HEIGHT]]
 )
+# Imagen real del plano (opcional): se guarda como archivo aparte, no adentro
+# del JSON. Su existencia en disco ES el estado ("¿hay imagen?"), no hace
+# falta duplicarlo en plano_config.json. Mismo criterio de no-versionar.
+PLANO_IMAGEN_PATH = os.getenv("LEANVISION_PLANO_IMAGEN", "plano_imagen.jpg")
+PLANO_IMAGEN_MAX_BYTES = 10 * 1024 * 1024
+PLANO_IMAGEN_LADO_MAXIMO_PX = 1600  # redimensiona si es más grande, para no servir fotos enormes en cada carga de página.
 
 # La recepción HTTP no ejecuta IA: sólo encola JPEGs. Así el loop de la cámara
 # nunca queda esperando al modelo ni se acumulan threads sin límite.
@@ -932,6 +938,7 @@ def obtener_plano() -> dict:
             "width": HEATMAP_WIDTH,
             "height": HEATMAP_HEIGHT,
             "contorno": list(contorno_local),
+            "tiene_imagen": os.path.exists(PLANO_IMAGEN_PATH),
         }
 
 
@@ -952,6 +959,53 @@ def borrar_contorno() -> dict:
     with state_lock:
         contorno_local.clear()
         _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.post("/api/plano/imagen")
+async def subir_imagen_plano(file: UploadFile = File(...)) -> dict:
+    """Sube una imagen real del plano (foto, plano dibujado, etc.) para
+    mostrar de fondo en vez de la grilla abstracta. Se guarda como archivo
+    aparte (no adentro del JSON); la coordenadas del plano (640x480) no
+    dependen de su resolución real — se muestra recortada para llenar el
+    mismo espacio donde ya se calibran cámaras y zonas.
+    """
+    contenido = await file.read()
+    if not contenido:
+        raise HTTPException(status_code=422, detail="La imagen está vacía.")
+    if len(contenido) > PLANO_IMAGEN_MAX_BYTES:
+        raise HTTPException(status_code=422, detail=f"La imagen pesa más de {PLANO_IMAGEN_MAX_BYTES // (1024*1024)}MB.")
+    imagen = cv2.imdecode(np.frombuffer(contenido, np.uint8), cv2.IMREAD_COLOR)
+    if imagen is None:
+        raise HTTPException(status_code=422, detail="No se pudo leer el archivo como imagen (¿es un JPG/PNG válido?).")
+    alto, ancho = imagen.shape[:2]
+    lado_mayor = max(alto, ancho)
+    if lado_mayor > PLANO_IMAGEN_LADO_MAXIMO_PX:
+        factor = PLANO_IMAGEN_LADO_MAXIMO_PX / lado_mayor
+        imagen = cv2.resize(imagen, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", imagen, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    if not ok:
+        raise HTTPException(status_code=500, detail="No se pudo procesar la imagen.")
+    ruta_tmp = f"{PLANO_IMAGEN_PATH}.tmp"
+    with open(ruta_tmp, "wb") as archivo:
+        archivo.write(buf.tobytes())
+    os.replace(ruta_tmp, PLANO_IMAGEN_PATH)
+    return {"ok": True}
+
+
+@app.get("/api/plano/imagen")
+def obtener_imagen_plano() -> FileResponse:
+    if not os.path.exists(PLANO_IMAGEN_PATH):
+        raise HTTPException(status_code=404, detail="No hay imagen del plano cargada todavía.")
+    return FileResponse(PLANO_IMAGEN_PATH, media_type="image/jpeg")
+
+
+@app.delete("/api/plano/imagen")
+def borrar_imagen_plano() -> dict:
+    try:
+        os.remove(PLANO_IMAGEN_PATH)
+    except FileNotFoundError:
+        pass
     return {"ok": True}
 
 
@@ -1055,6 +1109,12 @@ def panel_calibracion() -> str:
 
       <section class="panel map">
         <h2>Plano del local</h2>
+        <div class="fila" style="align-items:center">
+          <input id="imagen_input" type="file" accept="image/*">
+          <button onclick="subirImagenPlano()">Subir imagen del plano</button>
+          <button class="rojo" id="btn-quitar-imagen" onclick="quitarImagenPlano()" style="display:none">Quitar imagen</button>
+        </div>
+        <p class="paso">Se recorta para llenar el recuadro de 640×480 (mejor si es apaisada, proporción similar a 4:3).</p>
         <div>
           <button onclick="modoContorno()">1. Dibujar local</button>
           <button onclick="modoPosicion()">2. Ubicar cámara</button>
@@ -1374,9 +1434,44 @@ def panel_calibracion() -> str:
           </div>`).join('')||'<p>Sin zonas todavía.</p>';
         redraw();
       }
+      function aplicarFondoPlano(tieneImagen){
+        const el=$('#map');
+        if(tieneImagen){
+          el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;
+          el.style.backgroundSize='cover';
+          el.style.backgroundPosition='center';
+          $('#btn-quitar-imagen').style.display='inline-block';
+        } else {
+          el.style.backgroundImage='';
+          el.style.backgroundSize='';
+          el.style.backgroundPosition='';
+          $('#btn-quitar-imagen').style.display='none';
+        }
+      }
+
       async function cargarPlano(){
-        contorno=(await (await fetch('/api/plano')).json()).contorno||[];
+        const p=await (await fetch('/api/plano')).json();
+        contorno=p.contorno||[];
+        aplicarFondoPlano(p.tiene_imagen);
         redraw();
+      }
+
+      async function subirImagenPlano(){
+        const input=$('#imagen_input');
+        if(!input.files.length) return alert('Elegí un archivo de imagen primero.');
+        const form=new FormData();
+        form.append('file',input.files[0]);
+        const r=await fetch('/api/plano/imagen',{method:'POST',body:form});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al subir la imagen');return;}
+        input.value='';
+        await cargarPlano();
+      }
+
+      async function quitarImagenPlano(){
+        if(!confirm('¿Quitar la imagen del plano? Vuelve a la grilla.')) return;
+        await fetch('/api/plano/imagen',{method:'DELETE'});
+        await cargarPlano();
       }
 
       cargarPlano(); cargarCamaras(); cargarZonas();
@@ -1401,7 +1496,15 @@ def panel_web() -> str:
     <script>
       const heatmap=h337.create({container:document.querySelector('#heatmap'),radius:38,maxOpacity:.72,blur:.82});
       const $=s=>document.querySelector(s);
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';heatmap.setData({max:Math.max(3,h.max||0),data:h.puntos});$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
+      let fondoImagenAplicado=null;
+      function aplicarFondoPlano(tieneImagen){
+        if(tieneImagen===fondoImagenAplicado) return;
+        fondoImagenAplicado=tieneImagen;
+        const el=$('#map');
+        if(tieneImagen){el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
+        else{el.style.backgroundImage='';el.style.backgroundSize='';el.style.backgroundPosition='';}
+      }
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';heatmap.setData({max:Math.max(3,h.max||0),data:h.puntos});$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
       function dibujarPlano(zonas,contorno,camaras){
         const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
         if(contorno.length>=3){x.beginPath();x.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle='#94a3b8';x.lineWidth=3;x.stroke()}
