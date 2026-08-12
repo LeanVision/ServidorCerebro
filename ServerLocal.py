@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -67,7 +68,15 @@ HEATMAP_HEIGHT = 480
 # Heatmap por grilla, acumulativo (sin decaimiento): se mantiene estable
 # durante todo el día para poder comparar qué zonas fueron más concurridas al
 # cierre. Se reinicia manualmente con /api/reset.
-HEATMAP_CELDA_PX = 20
+#
+# La acumulación se hace siempre en celdas base finas y fijas; la vista agrupa
+# esas celdas al tamaño que corresponda (1 m² si hay escala real definida,
+# HEATMAP_CELDA_PX si no). Separar acumulación de presentación permite definir
+# o corregir la escala en cualquier momento sin perder lo ya acumulado.
+HEATMAP_CELDA_BASE_PX = 10
+HEATMAP_CELDA_PX = 20  # celda visible cuando no hay escala real definida.
+HEATMAP_CELDA_MIN_PX = 10  # nunca menor que la celda base.
+HEATMAP_CELDA_MAX_PX = 160
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
@@ -138,6 +147,7 @@ logging.basicConfig(
 logger = logging.getLogger("leanvision.cerebro")
 
 app = FastAPI(title="LeanVision Cerebro (CerebroLocal)", version="2.0.0")
+INSTANCIA_ID = str(int(time.time()))
 state_lock = threading.RLock()
 clientes_globales: dict[str, dict] = {}
 traductor_camaras: dict[str, dict] = {}
@@ -149,6 +159,10 @@ zonas_negocio: list[dict] = []
 # Contorno del local (paredes) en coordenadas del plano. Vacío = rectángulo
 # completo, que es como se comportaba antes de poder dibujarlo.
 contorno_local: list[list[float]] = []
+# Escala real del plano: {"puntos": [[x1,y1],[x2,y2]], "metros": float} — dos
+# puntos de referencia del plano y la distancia real entre ellos. None = sin
+# definir (el heatmap cae a celdas de HEATMAP_CELDA_PX, como siempre).
+escala_plano: dict | None = None
 _homografias_cache: dict[str, np.ndarray] = {}
 contador_global_ids = 1
 cola_reid: asyncio.Queue[DetectionJob] | None = None
@@ -200,6 +214,12 @@ class ZonaIn(BaseModel):
 
 class ContornoIn(BaseModel):
     polygon: list[list[float]]
+
+
+class EscalaIn(BaseModel):
+    # Dos puntos del plano y la distancia real en metros entre ellos.
+    puntos: list[list[float]]
+    metros: float
 
 
 print("Cargando modelo Re-ID OSNet-IBN...")
@@ -317,29 +337,75 @@ def _ids_bloqueados_en_misma_camara(
     return bloqueados
 
 
+def _escala_valida(escala) -> bool:
+    """Valida la forma COMPLETA de una escala: 2 puntos [x, y] numéricos
+    finitos y metros finito > 0. Se usa tanto al cargar el JSON del disco como
+    en el endpoint: cualquier cosa que no cumpla se descarta, porque una
+    escala malformada en memoria rompe /api/plano y /api/heatmap en cada
+    request (round(inf/NaN) revienta, y el desempaquetado de puntos también).
+    """
+    if not isinstance(escala, dict):
+        return False
+    puntos = escala.get("puntos")
+    if not isinstance(puntos, list) or len(puntos) != 2:
+        return False
+    for punto in puntos:
+        if not isinstance(punto, (list, tuple)) or len(punto) != 2:
+            return False
+        if not all(isinstance(c, (int, float)) and math.isfinite(c) for c in punto):
+            return False
+    metros = escala.get("metros")
+    return isinstance(metros, (int, float)) and math.isfinite(metros) and metros > 0
+
+
+def _pixeles_por_metro() -> float | None:
+    """Cuántos píxeles del plano representan un metro real, o None si la
+    escala todavía no fue definida en /calibrar."""
+    if not escala_plano:
+        return None
+    (x1, y1), (x2, y2) = escala_plano["puntos"]
+    distancia_px = math.hypot(x2 - x1, y2 - y1)
+    metros = escala_plano["metros"]
+    if metros <= 0 or distancia_px <= 0:
+        return None
+    return distancia_px / metros
+
+
+def _celda_heatmap_px() -> int:
+    """Lado de la celda visible del heatmap: 1 metro real si hay escala,
+    HEATMAP_CELDA_PX si no. Acotado para que un plano con escala extrema no
+    genere celdas más finas que la grilla base ni cuadrados absurdos."""
+    ppm = _pixeles_por_metro()
+    if ppm is None:
+        return HEATMAP_CELDA_PX
+    return max(HEATMAP_CELDA_MIN_PX, min(HEATMAP_CELDA_MAX_PX, round(ppm)))
+
+
 def _registrar_heatmap(pos_x: float, pos_y: float) -> None:
-    """Acumula presencia en la celda de la grilla, sin decaimiento."""
+    """Acumula presencia en la celda base de la grilla, sin decaimiento."""
     if not (0 <= pos_x < HEATMAP_WIDTH and 0 <= pos_y < HEATMAP_HEIGHT):
         return
-    celda_id = (int(pos_x // HEATMAP_CELDA_PX), int(pos_y // HEATMAP_CELDA_PX))
+    celda_id = (int(pos_x // HEATMAP_CELDA_BASE_PX), int(pos_y // HEATMAP_CELDA_BASE_PX))
     celda = heatmap_celdas.setdefault(celda_id, {"valor": 0.0})
     celda["valor"] += 1.0
 
 
-def _snapshot_heatmap() -> tuple[list[dict], float]:
-    """Devuelve los puntos acumulados hasta ahora y el valor máximo (para
-    escalar colores en el dashboard)."""
-    puntos: list[dict] = []
-    maximo = 0.0
+def _snapshot_heatmap() -> tuple[list[dict], float, int]:
+    """Agrupa las celdas base en celdas visibles (1 m² si hay escala real) y
+    devuelve (celdas con su esquina superior izquierda, máximo, lado en px)."""
+    celda_px = _celda_heatmap_px()
+    agregado: dict[tuple[int, int], float] = {}
     for (col, fila), celda in heatmap_celdas.items():
-        valor = celda["valor"]
-        puntos.append({
-            "x": int(col * HEATMAP_CELDA_PX + HEATMAP_CELDA_PX // 2),
-            "y": int(fila * HEATMAP_CELDA_PX + HEATMAP_CELDA_PX // 2),
-            "value": round(valor, 3),
-        })
-        maximo = max(maximo, valor)
-    return puntos, maximo
+        centro_x = col * HEATMAP_CELDA_BASE_PX + HEATMAP_CELDA_BASE_PX / 2
+        centro_y = fila * HEATMAP_CELDA_BASE_PX + HEATMAP_CELDA_BASE_PX / 2
+        clave = (int(centro_x // celda_px), int(centro_y // celda_px))
+        agregado[clave] = agregado.get(clave, 0.0) + celda["valor"]
+    celdas = [
+        {"x": col * celda_px, "y": fila * celda_px, "value": round(valor, 3)}
+        for (col, fila), valor in agregado.items()
+    ]
+    maximo = max((c["value"] for c in celdas), default=0.0)
+    return celdas, maximo, celda_px
 
 
 def _recalcular_homografia(camara_id: str) -> None:
@@ -360,17 +426,26 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
     """Carga cámaras/zonas del plano desde disco. Nunca tumba el arranque:
     ante cualquier error, sigue con el estado vacío (mismo criterio que
     _cargar_dotenv_local)."""
+    global escala_plano
     if not os.path.exists(ruta):
         return
     try:
         with open(ruta, "r", encoding="utf-8-sig") as archivo:
             datos = json.load(archivo)
+        if not isinstance(datos, dict):
+            raise ValueError(f"el contenido no es un objeto JSON sino {type(datos).__name__}")
         calibraciones_camaras.update(datos.get("camaras", {}))
         zonas_negocio.extend(datos.get("zonas", []))
         contorno_local[:] = datos.get("contorno", [])
+        escala = datos.get("escala")
+        if escala is not None:
+            if _escala_valida(escala):
+                escala_plano = {"puntos": escala["puntos"], "metros": float(escala["metros"])}
+            else:
+                logger.warning("Escala inválida en %s, se ignora (%r).", ruta, escala)
         for camara_id in calibraciones_camaras:
             _recalcular_homografia(camara_id)
-    except (OSError, json.JSONDecodeError, ValueError) as error:
+    except (OSError, AttributeError, TypeError, json.JSONDecodeError, ValueError) as error:
         logger.warning("No se pudo cargar %s, se ignora (%r).", ruta, error)
 
 
@@ -380,6 +455,7 @@ def _guardar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
         "camaras": calibraciones_camaras,
         "zonas": zonas_negocio,
         "contorno": contorno_local,
+        "escala": escala_plano,
     }
     ruta_tmp = f"{ruta}.tmp"
     with open(ruta_tmp, "w", encoding="utf-8") as archivo:
@@ -783,6 +859,10 @@ def health() -> dict:
             "queue_capacity": REID_QUEUE_SIZE,
             "active_global_ids": len(clientes_globales),
             "heatmap_size": {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT},
+            # Cambia en cada arranque. El dashboard lo usa para recargarse solo
+            # tras un deploy: su HTML/JS viaja embebido en este archivo, así que
+            # una pestaña abierta desde antes seguiría hablando el contrato viejo.
+            "instancia": INSTANCIA_ID,
         }
 
 
@@ -815,8 +895,18 @@ def obtener_clientes() -> dict:
 @app.get("/api/heatmap")
 def obtener_heatmap() -> dict:
     with state_lock:
-        puntos, maximo = _snapshot_heatmap()
-    return {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT, "puntos": puntos, "max": round(maximo, 3)}
+        celdas, maximo, celda_px = _snapshot_heatmap()
+        ppm = _pixeles_por_metro()
+    return {
+        "width": HEATMAP_WIDTH,
+        "height": HEATMAP_HEIGHT,
+        "celda_px": celda_px,
+        # Cuántos metros reales representa el lado de cada celda (None sin
+        # escala). Con escala es ~1.0 salvo que el clamp de tamaño actúe.
+        "celda_metros": round(celda_px / ppm, 2) if ppm else None,
+        "celdas": celdas,
+        "max": round(maximo, 3),
+    }
 
 
 @app.get("/api/zonas_camara")
@@ -934,11 +1024,17 @@ def borrar_calibracion(camara_id: str) -> dict:
 @app.get("/api/plano")
 def obtener_plano() -> dict:
     with state_lock:
+        ppm = _pixeles_por_metro()
+        celda_px = _celda_heatmap_px()
         return {
             "width": HEATMAP_WIDTH,
             "height": HEATMAP_HEIGHT,
             "contorno": list(contorno_local),
             "tiene_imagen": os.path.exists(PLANO_IMAGEN_PATH),
+            "escala": escala_plano,
+            "pixeles_por_metro": round(ppm, 2) if ppm else None,
+            "celda_px": celda_px,
+            "celda_metros": round(celda_px / ppm, 2) if ppm else None,
         }
 
 
@@ -958,6 +1054,44 @@ def guardar_contorno(contorno: ContornoIn) -> dict:
 def borrar_contorno() -> dict:
     with state_lock:
         contorno_local.clear()
+        _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.post("/api/plano/escala")
+def guardar_escala(escala: EscalaIn) -> dict:
+    """Define la escala real: dos puntos del plano + los metros entre ellos.
+    Con eso las celdas del heatmap pasan a representar 1 m² real."""
+    global escala_plano
+    candidata = {"puntos": escala.puntos, "metros": escala.metros}
+    # Rechaza NaN/Infinity antes de tocar nada: json.loads los acepta, y una
+    # escala no finita persistida deja /api/plano y /api/heatmap en 500 hasta
+    # que alguien edite el archivo a mano.
+    if not _escala_valida(candidata):
+        raise HTTPException(status_code=422, detail="La escala necesita exactamente 2 puntos [x, y] con números válidos.")
+    (x1, y1), (x2, y2) = escala.puntos
+    distancia_px = math.hypot(x2 - x1, y2 - y1)
+    if distancia_px < 10:
+        raise HTTPException(status_code=422, detail="Los 2 puntos están demasiado cerca; marcá referencias bien separadas.")
+    if not (0.1 <= escala.metros <= 500):
+        raise HTTPException(status_code=422, detail="La distancia real debe estar entre 0.1 y 500 metros.")
+    with state_lock:
+        escala_plano = candidata
+        ppm = _pixeles_por_metro()
+        celda_px = _celda_heatmap_px()
+        _guardar_plano_config()
+    return {
+        "ok": True,
+        "pixeles_por_metro": round(ppm, 2) if ppm else None,
+        "celda_px": celda_px,
+    }
+
+
+@app.delete("/api/plano/escala")
+def borrar_escala() -> dict:
+    global escala_plano
+    with state_lock:
+        escala_plano = None
         _guardar_plano_config()
     return {"ok": True}
 
@@ -1117,16 +1251,26 @@ def panel_calibracion() -> str:
         <p class="paso">Se recorta para llenar el recuadro de 640×480 (mejor si es apaisada, proporción similar a 4:3).</p>
         <div>
           <button onclick="modoContorno()">1. Dibujar local</button>
-          <button onclick="modoPosicion()">2. Ubicar cámara</button>
-          <button onclick="modoCalibrar()">3. Calibrar cámara</button>
-          <button onclick="modoZona()">4. Dibujar zona</button>
+          <button onclick="modoEscala()">2. Escala (metros)</button>
+          <button onclick="modoPosicion()">3. Ubicar cámara</button>
+          <button onclick="modoCalibrar()">4. Calibrar cámara</button>
+          <button onclick="modoZona()">5. Dibujar zona</button>
         </div>
         <p id="instrucciones">Empezá dibujando la forma del local con el paso 1.</p>
+        <p class="paso" id="escala-info"></p>
         <div id="map"><canvas id="plano" width="640" height="480"></canvas></div>
         <div id="controles-contorno" style="display:none">
           <button onclick="guardarContorno()">Guardar forma del local</button>
           <button class="gris" onclick="limpiarDibujo()">Limpiar</button>
           <button class="rojo" onclick="borrarContorno()">Borrar forma guardada</button>
+        </div>
+        <div id="controles-escala" style="display:none">
+          <div class="fila">
+            <input id="escala_metros" type="number" min="0.1" step="0.1" placeholder="Distancia real entre los 2 puntos, en metros">
+            <button onclick="guardarEscala()">Guardar escala</button>
+          </div>
+          <button class="gris" onclick="limpiarDibujo()">Rehacer puntos</button>
+          <button class="rojo" onclick="borrarEscala()">Borrar escala guardada</button>
         </div>
         <div id="controles-calibracion" style="display:none">
           <button onclick="confirmarCalibracion()">Confirmar calibración</button>
@@ -1156,6 +1300,7 @@ def panel_calibracion() -> str:
       let camaras=[], zonas=[], contorno=[], camaraSel=null, modo=null;
       let puntosCalibracion=[], poligonoZona=[], poligonoContorno=[], puntosVideo=[];
       let faseCalibracion='video';
+      let escala=null, puntosEscala=[];
 
       function pointFrom(event,el,w,h){
         const rect=el.getBoundingClientRect();
@@ -1200,6 +1345,21 @@ def panel_calibracion() -> str:
         ctx.fillText(c.nombre||c.camara_id,x+15,y+4);
       }
 
+      function dibujarRegla(puntos,metros,provisoria){
+        if(puntos.length<1) return;
+        ctx.strokeStyle='#f59e0b';ctx.fillStyle='#f59e0b';
+        puntos.forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],5,0,7);ctx.fill();});
+        if(puntos.length<2) return;
+        ctx.setLineDash(provisoria?[6,4]:[]);
+        ctx.beginPath();ctx.moveTo(...puntos[0]);ctx.lineTo(...puntos[1]);
+        ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
+        if(metros){
+          const mx=(puntos[0][0]+puntos[1][0])/2, my=(puntos[0][1]+puntos[1][1])/2;
+          ctx.font='bold 13px sans-serif';
+          ctx.fillText(`${metros} m`,mx+8,my-8);
+        }
+      }
+
       function redraw(){
         ctx.clearRect(0,0,canvas.width,canvas.height);
         if(contorno.length>=3){
@@ -1210,6 +1370,11 @@ def panel_calibracion() -> str:
         zonas.forEach(z=>dibujarPoligono(z.polygon,z.color||'#00ff88',true,z.name,false));
         camaras.forEach(c=>{if(c.puntos_plano) dibujarPoligono(c.puntos_plano,colorCamara(c.camara_id),false,null,true);});
         camaras.forEach(dibujarCamara);
+        if(modo==='escala'){
+          dibujarRegla(puntosEscala,null,true);
+        } else if(escala&&escala.puntos){
+          dibujarRegla(escala.puntos,escala.metros,false);
+        }
         if(modo==='calibrar'&&faseCalibracion==='plano'){
           dibujarPoligono(puntosCalibracion,'#facc15',false,null,false);
           marcarPuntos(ctx,puntosCalibracion,'#facc15',true);
@@ -1239,7 +1404,16 @@ def panel_calibracion() -> str:
         $('#controles-calibracion').style.display='none';
         $('#controles-zona').style.display='none';
         $('#controles-contorno').style.display='none';
+        $('#controles-escala').style.display='none';
         vcanvas.classList.remove('activo');
+      }
+
+      function modoEscala(){
+        modo='escala'; puntosEscala=[];
+        ocultarControles();
+        $('#controles-escala').style.display='block';
+        $('#instrucciones').textContent='Marcá 2 puntos del plano cuya distancia real conozcas (ej: los extremos de una pared), y escribí cuántos metros hay entre ellos.';
+        redraw(); redrawVideo();
       }
 
       function modoContorno(){
@@ -1277,9 +1451,10 @@ def panel_calibracion() -> str:
       }
 
       function limpiarDibujo(){
-        puntosCalibracion=[]; poligonoZona=[]; poligonoContorno=[]; puntosVideo=[];
+        puntosCalibracion=[]; poligonoZona=[]; poligonoContorno=[]; puntosVideo=[]; puntosEscala=[];
         if(modo==='calibrar') modoCalibrar();
         else if(modo==='contorno') modoContorno();
+        else if(modo==='escala') modoEscala();
         else {redraw(); redrawVideo();}
       }
 
@@ -1325,6 +1500,17 @@ def panel_calibracion() -> str:
             return;
           }
           poligonoContorno.push(p); redraw();
+        } else if(modo==='escala'){
+          // El paso 1 cierra el contorno con doble clic: acá ese mismo gesto
+          // marcaría los 2 puntos superpuestos, así que se ignora el 2do click.
+          if(event.detail===2||puntosEscala.length>=2) return;
+          puntosEscala.push(p); redraw();
+          if(puntosEscala.length===1){
+            $('#instrucciones').textContent='Ahora marcá el segundo punto de referencia.';
+          } else {
+            $('#instrucciones').textContent='Escribí la distancia real en metros entre esos 2 puntos y guardá.';
+            $('#escala_metros').focus();
+          }
         }
       });
 
@@ -1333,7 +1519,7 @@ def panel_calibracion() -> str:
         const data=await r.json();
         if(!r.ok){alert(data.detail||'Error al ubicar la cámara');return;}
         modo=null;
-        $('#instrucciones').textContent='Ubicación guardada. Seguí con el paso 3 para calibrar lo que ve.';
+        $('#instrucciones').textContent='Ubicación guardada. Seguí con el paso 4 para calibrar lo que ve.';
         await cargarCamaras();
       }
 
@@ -1352,6 +1538,28 @@ def panel_calibracion() -> str:
         if(!confirm('¿Borrar la forma del local?')) return;
         await fetch('/api/plano/contorno',{method:'DELETE'});
         poligonoContorno=[]; modo=null; ocultarControles();
+        await cargarPlano();
+      }
+
+      async function guardarEscala(){
+        if(puntosEscala.length!==2) return alert('Marcá primero los 2 puntos de referencia en el plano.');
+        const metros=parseFloat($('#escala_metros').value);
+        if(!metros||metros<=0) return alert('Escribí la distancia real en metros (mayor a 0).');
+        const r=await fetch('/api/plano/escala',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos:puntosEscala,metros})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al guardar la escala');return;}
+        modo=null; puntosEscala=[]; $('#escala_metros').value='';
+        ocultarControles();
+        const lado=(data.celda_px/data.pixeles_por_metro).toFixed(2);
+        $('#instrucciones').textContent=`Escala guardada: 1 m ≈ ${data.pixeles_por_metro} px. El heatmap ahora usa celdas de ${lado}×${lado} m.`;
+        await cargarPlano();
+      }
+
+      async function borrarEscala(){
+        if(!confirm('¿Borrar la escala? El heatmap vuelve a celdas de 20 px sin significado real.')) return;
+        await fetch('/api/plano/escala',{method:'DELETE'});
+        puntosEscala=[]; modo=null; ocultarControles();
+        $('#instrucciones').textContent='Escala borrada. El heatmap vuelve a celdas de 20 px.';
         await cargarPlano();
       }
 
@@ -1389,7 +1597,7 @@ def panel_calibracion() -> str:
         const cam=camaras.find(c=>c.camara_id===id);
         $('#video-previa').src=cam?cam.video_url:'';
         $('#paso-video').textContent=cam?`Viendo "${cam.nombre||id}".`:'';
-        if(modo==='calibrar'||modo==='posicion'){modo=null; ocultarControles(); $('#instrucciones').textContent='Cámara cambiada: elegí de nuevo el paso 2 o 3.';}
+        if(modo==='calibrar'||modo==='posicion'){modo=null; ocultarControles(); $('#instrucciones').textContent='Cámara cambiada: elegí de nuevo el paso 3 o 4.';}
         puntosVideo=[]; puntosCalibracion=[];
         cargarCamaras(); redrawVideo();
       }
@@ -1452,6 +1660,10 @@ def panel_calibracion() -> str:
       async function cargarPlano(){
         const p=await (await fetch('/api/plano')).json();
         contorno=p.contorno||[];
+        escala=p.escala||null;
+        $('#escala-info').textContent=p.pixeles_por_metro
+          ?`Escala definida: 1 m ≈ ${p.pixeles_por_metro} px · celdas del heatmap de ${p.celda_metros}×${p.celda_metros} m.`
+          :'Sin escala real: el heatmap usa celdas de 20 px. Definila con el paso 2.';
         aplicarFondoPlano(p.tiene_imagen);
         redraw();
       }
@@ -1484,7 +1696,6 @@ def panel_web() -> str:
     return """
     <!doctype html><html lang="es"><head><meta charset="utf-8">
     <title>LeanVision Cerebro</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/heatmap.js/2.0.2/heatmap.min.js"></script>
     <style>
       body{margin:0;padding:24px;background:#0f172a;color:#e2e8f0;font:15px system-ui,sans-serif}
       header,.layout{max-width:1280px;margin:auto}.layout{display:flex;gap:28px;align-items:start;flex-wrap:wrap}
@@ -1492,10 +1703,38 @@ def panel_web() -> str:
       #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827;background-image:linear-gradient(#33415555 1px,transparent 1px),linear-gradient(90deg,#33415555 1px,transparent 1px);background-size:40px 40px}
       #heatmap,#zones{position:absolute;inset:0;width:100%;height:100%}#zones{pointer-events:none}.grid{display:flex;gap:12px;flex-wrap:wrap}.card{width:170px;background:#334155;border-radius:8px;padding:10px}.card img{width:100%;height:130px;object-fit:cover;border-radius:6px}button{padding:9px 12px;background:#ef4444;color:white;border:0;border-radius:6px;cursor:pointer}
     </style></head><body><header><h1>LeanVision Cerebro</h1><p id="health">Cargando métricas…</p><a href="/calibrar" style="color:#7dd3fc;margin-right:12px">Calibrar cámaras / zonas</a><button onclick="resetear()">Resetear memoria</button></header>
-    <main class="layout"><section class="panel clients"><h2>Personas activas</h2><div id="clientes" class="grid"></div></section><section class="panel map"><h2>Mapa de calor — plano de tienda</h2><div id="map"><div id="heatmap"></div><canvas id="zones" width="640" height="480"></canvas></div></section></main>
+    <main class="layout"><section class="panel clients"><h2>Personas activas</h2><div id="clientes" class="grid"></div></section><section class="panel map"><h2>Mapa de calor — plano de tienda</h2><div id="map"><canvas id="heatmap" width="640" height="480"></canvas><canvas id="zones" width="640" height="480"></canvas></div><p id="escala-legenda" style="margin:8px 0 0;font-size:12px;color:#94a3b8"></p></section></main>
     <script>
-      const heatmap=h337.create({container:document.querySelector('#heatmap'),radius:38,maxOpacity:.72,blur:.82});
       const $=s=>document.querySelector(s);
+      // Tras un deploy el servidor reinicia y su JS embebido cambia; esta
+      // pestaña seguiría con el viejo. Al cambiar la instancia, se recarga.
+      let instanciaServidor=null;
+      function verificarInstancia(id){
+        if(instanciaServidor===null){instanciaServidor=id;return;}
+        if(id&&id!==instanciaServidor) location.reload();
+      }
+      // Rampa de calor por cuadrantes: azul (poco) -> verde -> amarillo -> naranja -> rojo (mucho).
+      const COLORES_CALOR=[[59,130,246],[34,197,94],[234,179,8],[249,115,22],[239,68,68]];
+      function colorCalor(t){
+        const tramo=Math.min(COLORES_CALOR.length-2,Math.floor(t*(COLORES_CALOR.length-1)));
+        const f=t*(COLORES_CALOR.length-1)-tramo;
+        const a=COLORES_CALOR[tramo],b=COLORES_CALOR[tramo+1];
+        return [Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)];
+      }
+      function dibujarHeatmap(h){
+        const c=$('#heatmap'),x=c.getContext('2d');
+        x.clearRect(0,0,c.width,c.height);
+        const max=Math.max(h.max||0,1);
+        (h.celdas||[]).forEach(cel=>{
+          const t=Math.min(1,cel.value/max);
+          const [r,g,b]=colorCalor(t);
+          x.fillStyle=`rgba(${r},${g},${b},${(0.25+0.5*t).toFixed(2)})`;
+          x.fillRect(cel.x,cel.y,h.celda_px,h.celda_px);
+        });
+        $('#escala-legenda').textContent=h.celda_metros
+          ?`Cuadrantes de ${h.celda_metros}×${h.celda_metros} m — azul: poco tráfico · rojo: mucho tráfico`
+          :'Cuadrantes de '+h.celda_px+' px — definí la escala real en Calibrar para verlos en metros';
+      }
       let fondoImagenAplicado=null;
       function aplicarFondoPlano(tieneImagen){
         if(tieneImagen===fondoImagenAplicado) return;
@@ -1504,7 +1743,7 @@ def panel_web() -> str:
         if(tieneImagen){el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
         else{el.style.backgroundImage='';el.style.backgroundSize='';el.style.backgroundPosition='';}
       }
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';heatmap.setData({max:Math.max(3,h.max||0),data:h.puntos});$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
       function dibujarPlano(zonas,contorno,camaras){
         const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
         if(contorno.length>=3){x.beginPath();x.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle='#94a3b8';x.lineWidth=3;x.stroke()}
