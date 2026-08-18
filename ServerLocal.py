@@ -1533,7 +1533,7 @@ def panel_calibracion() -> str:
       .panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}
       .lado{min-width:260px;flex:0 0 260px}
       .map{width:640px;max-width:100%;box-sizing:border-box}
-      #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827;background-image:linear-gradient(#33415555 1px,transparent 1px),linear-gradient(90deg,#33415555 1px,transparent 1px);background-size:40px 40px}
+      #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827}
       #plano{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
       input,select{width:100%;box-sizing:border-box;padding:7px 8px;margin:4px 0;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0}
       button{padding:8px 12px;background:#2563eb;color:white;border:0;border-radius:6px;cursor:pointer;margin:3px 3px 3px 0}
@@ -1729,12 +1729,17 @@ def panel_calibracion() -> str:
         }
       }
 
-      function dibujarGrilla(){
-        if(zonaCeldaPx<4) return;
-        ctx.strokeStyle='#64748b44';ctx.lineWidth=1;
+      function dibujarGrilla(resaltada){
+        // Se dibuja en el canvas y no con CSS a propósito: el canvas se
+        // escala solo si el plano no entra a 640px, y una grilla de CSS
+        // (que mide en píxeles de pantalla) quedaría desalineada de las
+        // celdas reales justo cuando más importa.
+        const g=zonaCeldaPx;
+        if(g<4) return;
+        ctx.strokeStyle=resaltada?'#64748b66':'#64748b2e';ctx.lineWidth=1;
         ctx.beginPath();
-        for(let x=0;x<=canvas.width;x+=zonaCeldaPx){ctx.moveTo(Math.round(x)+0.5,0);ctx.lineTo(Math.round(x)+0.5,canvas.height);}
-        for(let y=0;y<=canvas.height;y+=zonaCeldaPx){ctx.moveTo(0,Math.round(y)+0.5);ctx.lineTo(canvas.width,Math.round(y)+0.5);}
+        for(let x=0;x<=canvas.width;x+=g){ctx.moveTo(Math.round(x)+0.5,0);ctx.lineTo(Math.round(x)+0.5,canvas.height);}
+        for(let y=0;y<=canvas.height;y+=g){ctx.moveTo(0,Math.round(y)+0.5);ctx.lineTo(canvas.width,Math.round(y)+0.5);}
         ctx.stroke();
       }
 
@@ -1765,7 +1770,7 @@ def panel_calibracion() -> str:
           ctx.fillStyle='#1e293b88';ctx.fill();
           ctx.strokeStyle='#94a3b8';ctx.lineWidth=3;ctx.stroke();
         }
-        if(modo==='zona'||modo==='contorno') dibujarGrilla();
+        dibujarGrilla(modo==='zona'||modo==='contorno');
         zonas.forEach(z=>{
           // La zona en edición no se dibuja acá: se dibuja abajo desde
           // celdasZona. Si no, se verían las dos copias superpuestas.
@@ -2323,7 +2328,7 @@ def panel_web() -> str:
       body{margin:0;padding:24px;background:#0f172a;color:#e2e8f0;font:15px system-ui,sans-serif}
       header,.layout{max-width:1280px;margin:auto}.layout{display:flex;gap:28px;align-items:start;flex-wrap:wrap}
       .panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}.clients{flex:1;min-width:300px}.map{width:640px;max-width:100%;box-sizing:border-box}
-      #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827;background-image:linear-gradient(#33415555 1px,transparent 1px),linear-gradient(90deg,#33415555 1px,transparent 1px);background-size:40px 40px}
+      #map{position:relative;width:640px;max-width:100%;aspect-ratio:640/480;overflow:hidden;background:#111827}
       #heatmap,#zones{position:absolute;inset:0;width:100%;height:100%}#zones{pointer-events:none}.grid{display:flex;gap:12px;flex-wrap:wrap}.card{width:170px;background:#334155;border-radius:8px;padding:10px}.card img{width:100%;height:130px;object-fit:cover;border-radius:6px}button{padding:9px 12px;background:#ef4444;color:white;border:0;border-radius:6px;cursor:pointer}
     </style></head><body><header><h1>LeanVision Cerebro</h1><p id="health">Cargando métricas…</p><a href="/calibrar" style="color:#7dd3fc;margin-right:12px">Calibrar cámaras / zonas</a><button onclick="resetear()">Resetear memoria</button></header>
     <main class="layout"><section class="panel clients"><h2>Personas activas</h2><div id="clientes" class="grid"></div></section><section class="panel map"><h2>Mapa de calor — plano de tienda</h2><div id="map"><canvas id="heatmap" width="640" height="480"></canvas><canvas id="zones" width="640" height="480"></canvas></div><p id="escala-legenda" style="margin:8px 0 0;font-size:12px;color:#94a3b8"></p></section></main>
@@ -2366,9 +2371,18 @@ def panel_web() -> str:
         if(tieneImagen){el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
         else{el.style.backgroundImage='';el.style.backgroundSize='';el.style.backgroundPosition='';}
       }
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[])}catch(e){console.warn(e)}}
-      function dibujarPlano(zonas,contorno,camaras){
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
+      function dibujarPlano(zonas,contorno,camaras,celdaPx){
         const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+        // Grilla de los cuadrantes del heatmap. Va en el canvas y no en CSS
+        // para que quede alineada con las celdas aunque el plano se muestre
+        // a menos de 640px de ancho.
+        if(celdaPx>=4){
+          x.strokeStyle='#64748b2e';x.lineWidth=1;x.beginPath();
+          for(let gx=0;gx<=c.width;gx+=celdaPx){x.moveTo(Math.round(gx)+0.5,0);x.lineTo(Math.round(gx)+0.5,c.height);}
+          for(let gy=0;gy<=c.height;gy+=celdaPx){x.moveTo(0,Math.round(gy)+0.5);x.lineTo(c.width,Math.round(gy)+0.5);}
+          x.stroke();
+        }
         if(contorno.length>=3){x.beginPath();x.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle='#94a3b8';x.lineWidth=3;x.stroke()}
         zonas.forEach(z=>{
           const color=z.color||'#00ff88';
