@@ -14,6 +14,8 @@ import json
 import logging
 import math
 import os
+import unicodedata
+import uuid
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -428,6 +430,52 @@ def _celda_zona_px() -> float:
     return max(ZONA_CELDA_MIN_PX, min(ZONA_CELDA_MAX_PX, ppm * ZONA_CELDA_METROS))
 
 
+def _slug_etiqueta(nombre: str) -> str:
+    """Id estable derivado del nombre, para que la misma etiqueta tenga el
+    MISMO id en todas las sucursales aunque cada una la haya cargado por su
+    cuenta — que es lo único que permite comparar la zona entre locales.
+
+    Los acentos se normalizan a propósito: "Café" y "Cafe" son la misma zona
+    de negocio, y si generaran ids distintos el catálogo no cumpliría su
+    función justo en el caso que quiere resolver. Devuelve "" si el nombre no
+    tiene ningún carácter alfanumérico (el llamador lo rechaza en vez de caer
+    a un id con timestamp, que no sería reproducible entre sucursales).
+    """
+    sin_acentos = "".join(
+        c for c in unicodedata.normalize("NFD", nombre) if unicodedata.category(c) != "Mn"
+    )
+    base = "".join(c if c.isalnum() else "_" for c in sin_acentos.lower())
+    # Colapsa corridas de "_" para que "Caja 1" y "Caja  1" no difieran.
+    while "__" in base:
+        base = base.replace("__", "_")
+    base = base.strip("_")
+    return f"cat_{base}" if base else ""
+
+
+def _zona_valida_en_disco(zona) -> bool:
+    """Descarta zonas malformadas al cargar plano_config.json. Sin esto, una
+    zona sin 'id' propagaba un KeyError desde el evento de startup (uvicorn
+    aborta y systemd entra en loop de reinicios) y además rompía
+    _zona_en_punto en cada detección."""
+    if not isinstance(zona, dict) or not isinstance(zona.get("id"), str) or not zona["id"]:
+        return False
+    if not isinstance(zona.get("name"), str) or not zona["name"]:
+        return False
+    return bool(zona.get("celdas")) or bool(zona.get("polygon"))
+
+
+def _etiqueta_valida_en_disco(etiqueta) -> bool:
+    """Igual que las zonas: una entrada sin 'nombre' o sin 'id' dejaba TODOS
+    los endpoints del catálogo devolviendo 500 apenas alguien los tocaba."""
+    return (
+        isinstance(etiqueta, dict)
+        and isinstance(etiqueta.get("id"), str)
+        and etiqueta["id"]
+        and isinstance(etiqueta.get("nombre"), str)
+        and etiqueta["nombre"]
+    )
+
+
 def _reindexar_celdas_zonas() -> None:
     """Rearma el índice (zona_id -> set de celdas) que usa _zona_en_punto.
 
@@ -501,9 +549,13 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
         if not isinstance(datos, dict):
             raise ValueError(f"el contenido no es un objeto JSON sino {type(datos).__name__}")
         calibraciones_camaras.update(datos.get("camaras", {}))
-        zonas_negocio.extend(datos.get("zonas", []))
+        zonas = [z for z in datos.get("zonas", []) if _zona_valida_en_disco(z)]
+        descartadas = len(datos.get("zonas", [])) - len(zonas)
+        if descartadas:
+            logger.warning("Se descartaron %d zona(s) malformada(s) de %s.", descartadas, ruta)
+        zonas_negocio.extend(zonas)
         contorno_local[:] = datos.get("contorno", [])
-        catalogo_zonas.extend(datos.get("catalogo", []))
+        catalogo_zonas.extend(e for e in datos.get("catalogo", []) if _etiqueta_valida_en_disco(e))
         escala = datos.get("escala")
         if escala is not None:
             if _escala_valida(escala):
@@ -512,9 +564,14 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
                 logger.warning("Escala inválida en %s, se ignora (%r).", ruta, escala)
         for camara_id in calibraciones_camaras:
             _recalcular_homografia(camara_id)
-        _reindexar_celdas_zonas()
-    except (OSError, AttributeError, TypeError, json.JSONDecodeError, ValueError) as error:
+    except (OSError, AttributeError, KeyError, TypeError, json.JSONDecodeError, ValueError) as error:
         logger.warning("No se pudo cargar %s, se ignora (%r).", ruta, error)
+    finally:
+        # Va en finally: si algo falla DESPUÉS de cargar las zonas (escala,
+        # homografías), sin esto quedaba zonas_negocio poblado y el cache
+        # vacío — y ese desajuste es indistinguible de "no hay zonas": las
+        # detecciones dejan de atribuirse a ninguna zona, sin error ni log.
+        _reindexar_celdas_zonas()
 
 
 def _guardar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
@@ -1133,8 +1190,12 @@ def obtener_plano() -> dict:
             "celda_px": celda_px,
             "celda_metros": round(celda_px / ppm, 2) if ppm else None,
             # Grilla de zonas (más fina que la del heatmap, ver ZONA_CELDA_METROS).
+            # Se deriva del px real y no se devuelve la constante: cuando el
+            # clamp de _celda_zona_px() actúa, la celda deja de medir
+            # ZONA_CELDA_METROS y la UI mostraría un área que no es la que
+            # calcula el servidor.
             "zona_celda_px": round(_celda_zona_px(), 3),
-            "zona_celda_metros": ZONA_CELDA_METROS if ppm else None,
+            "zona_celda_metros": round(_celda_zona_px() / ppm, 3) if ppm else None,
         }
 
 
@@ -1243,11 +1304,18 @@ def borrar_imagen_plano() -> dict:
     return {"ok": True}
 
 
-def _validar_celdas(celdas: list) -> list[list[int]]:
+def _validar_celdas(celdas: list, celda_px: float) -> list[list[int]]:
     """Normaliza y deduplica las celdas pintadas. Las celdas fuera del plano
     se descartan en vez de rechazar todo: pintar arrastrando el mouse hasta
-    el borde es normal y no debería fallar."""
-    celda_px = _celda_zona_px()
+    el borde es normal y no debería fallar.
+
+    El tamaño de celda llega por parámetro (no se toma el actual del plano):
+    al editar una zona vieja hay que acotar con la grilla CON LA QUE FUE
+    PINTADA, o las celdas de los bordes se descartarían por caer fuera de una
+    grilla que no es la suya.
+    """
+    if celda_px <= 0:
+        raise HTTPException(status_code=422, detail="Tamaño de celda inválido.")
     max_col = int(HEATMAP_WIDTH // celda_px) + 1
     max_fila = int(HEATMAP_HEIGHT // celda_px) + 1
     limpias: set[tuple[int, int]] = set()
@@ -1265,9 +1333,36 @@ def _validar_celdas(celdas: list) -> list[list[int]]:
     return [[col, fila] for col, fila in sorted(limpias)]
 
 
-def _armar_zona(zona: ZonaIn, zona_id: str) -> dict:
+def _validar_poligono(polygon: list) -> list[list[float]]:
+    """Valida que el polígono sea una lista de pares [x, y] finitos.
+
+    pydantic acepta list[list[float]] con sublistas de largo 1 y con
+    NaN/Infinity, y un polígono así se persiste con 200 OK pero después hace
+    reventar _punto_en_poligono en el camino caliente — lo que deja de
+    procesar TODAS las detecciones mientras el servidor sigue respondiendo
+    como si estuviera sano.
+    """
+    if len(polygon) < 3:
+        raise HTTPException(status_code=422, detail="Una zona por polígono necesita al menos 3 puntos.")
+    limpio: list[list[float]] = []
+    for punto in polygon:
+        if not isinstance(punto, (list, tuple)) or len(punto) != 2:
+            raise HTTPException(status_code=422, detail="Cada punto del polígono debe ser un par [x, y].")
+        if not all(isinstance(c, (int, float)) and math.isfinite(c) for c in punto):
+            raise HTTPException(status_code=422, detail="Las coordenadas del polígono deben ser números finitos.")
+        limpio.append([float(punto[0]), float(punto[1])])
+    return limpio
+
+
+def _armar_zona(zona: ZonaIn, zona_id: str, celda_px_existente: float | None = None) -> dict:
     """Construye el dict de una zona desde el payload, aceptando tanto el
-    formato de grilla (celdas) como el viejo de polígono."""
+    formato de grilla (celdas) como el viejo de polígono.
+
+    `celda_px_existente` se pasa al EDITAR: las celdas son índices sin
+    unidad, sólo significan algo junto al tamaño de celda con el que se
+    pintaron. Re-estampar el tamaño actual movería y redimensionaría la zona
+    sobre el piso si alguien corrigió la escala del plano en el medio.
+    """
     if not zona.name.strip():
         raise HTTPException(status_code=422, detail="La zona necesita un nombre.")
     nueva: dict = {
@@ -1278,15 +1373,11 @@ def _armar_zona(zona: ZonaIn, zona_id: str) -> dict:
     if zona.catalogo_id:
         nueva["catalogo_id"] = zona.catalogo_id
     if zona.celdas:
-        nueva["celdas"] = _validar_celdas(zona.celdas)
-        # Se guarda el tamaño de celda usado al pintar: si mañana se corrige
-        # la escala del plano, la zona sigue representando la misma
-        # superficie real en vez de estirarse o encogerse sola.
-        nueva["celda_px"] = round(_celda_zona_px(), 3)
+        celda_px = celda_px_existente if celda_px_existente else _celda_zona_px()
+        nueva["celdas"] = _validar_celdas(zona.celdas, celda_px)
+        nueva["celda_px"] = round(celda_px, 3)
     elif zona.polygon:
-        if len(zona.polygon) < 3:
-            raise HTTPException(status_code=422, detail="Una zona por polígono necesita al menos 3 puntos.")
-        nueva["polygon"] = zona.polygon
+        nueva["polygon"] = _validar_poligono(zona.polygon)
     else:
         raise HTTPException(status_code=422, detail="Pintá al menos una celda para definir la zona.")
     return nueva
@@ -1295,14 +1386,26 @@ def _armar_zona(zona: ZonaIn, zona_id: str) -> dict:
 @app.get("/api/zonas")
 def listar_zonas() -> dict:
     with state_lock:
+        ppm = _pixeles_por_metro()
+        celda_px = _celda_zona_px()
         zonas = [{**zona, "area_m2": _area_zona_m2(zona)} for zona in zonas_negocio]
-        return {"zones": zonas, "celda_px": round(_celda_zona_px(), 3), "celda_metros": ZONA_CELDA_METROS}
+        return {
+            "zones": zonas,
+            "celda_px": round(celda_px, 3),
+            # None sin escala: ahí las celdas son píxeles sin significado
+            # físico y devolver 0.5 haría que la UI muestre metros inventados.
+            "celda_metros": round(celda_px / ppm, 3) if ppm else None,
+        }
 
 
 @app.post("/api/zonas")
 def crear_zona(zona: ZonaIn) -> dict:
     with state_lock:
-        nueva = _armar_zona(zona, f"zona_{len(zonas_negocio) + 1}_{int(time.time())}")
+        # uuid en vez de contador+timestamp: el contador se recicla al borrar
+        # zonas y el timestamp no distingue dos altas en el mismo segundo. El
+        # id ahora es la clave del cache de celdas, así que una colisión hace
+        # que una zona reporte las detecciones de otra.
+        nueva = _armar_zona(zona, f"zona_{uuid.uuid4().hex[:12]}")
         zonas_negocio.append(nueva)
         _reindexar_celdas_zonas()
         _guardar_plano_config()
@@ -1314,7 +1417,7 @@ def editar_zona(zona_id: str, zona: ZonaIn) -> dict:
     with state_lock:
         for indice, existente in enumerate(zonas_negocio):
             if existente["id"] == zona_id:
-                zonas_negocio[indice] = _armar_zona(zona, zona_id)
+                zonas_negocio[indice] = _armar_zona(zona, zona_id, existente.get("celda_px"))
                 _reindexar_celdas_zonas()
                 _guardar_plano_config()
                 return zonas_negocio[indice]
@@ -1348,14 +1451,26 @@ def crear_etiqueta(etiqueta: EtiquetaIn) -> dict:
     nombre = etiqueta.nombre.strip()
     if not nombre:
         raise HTTPException(status_code=422, detail="La etiqueta necesita un nombre.")
+    id_nuevo = _slug_etiqueta(nombre)
+    if not id_nuevo:
+        raise HTTPException(
+            status_code=422,
+            detail="El nombre necesita al menos una letra o número (no puede ser sólo símbolos o emojis).",
+        )
     with state_lock:
-        if any(e["nombre"].lower() == nombre.lower() for e in catalogo_zonas):
+        if any(e.get("nombre", "").lower() == nombre.lower() for e in catalogo_zonas):
             raise HTTPException(status_code=422, detail=f"Ya existe una etiqueta llamada '{nombre}'.")
-        # El id se deriva del nombre para que sea el MISMO en todas las
-        # sucursales: es lo que permite agrupar "Ropa de mujer" entre locales
-        # aunque cada uno la haya cargado por su cuenta.
-        base = "".join(c if c.isalnum() else "_" for c in nombre.lower()).strip("_")
-        nueva = {"id": f"cat_{base or int(time.time())}", "nombre": nombre, "color": etiqueta.color}
+        # También se valida el id, no sólo el nombre: "Caja" y "Caja!" tienen
+        # nombres distintos pero producen el mismo id, y con ids repetidos el
+        # desplegable de la UI resuelve siempre a la primera y borrar una
+        # elimina las dos.
+        existente = next((e for e in catalogo_zonas if e.get("id") == id_nuevo), None)
+        if existente:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{nombre}' generaría el mismo identificador que '{existente.get('nombre')}'. Usá un nombre más distinto.",
+            )
+        nueva = {"id": id_nuevo, "nombre": nombre, "color": etiqueta.color}
         catalogo_zonas.append(nueva)
         _guardar_plano_config()
     return nueva
@@ -1533,10 +1648,22 @@ def panel_calibracion() -> str:
       let faseCalibracion='video';
       let escala=null, puntosEscala=[];
       // Zonas por grilla: se pinta arrastrando, como seleccionar celdas en Excel.
-      let etiquetas=[], celdasZona=new Set(), zonaCeldaPx=20, zonaCeldaMetros=null;
+      // zonaCeldaPxPlano es la grilla actual del plano; zonaCeldaPx es la que
+      // se está usando para pintar, que al EDITAR pasa a ser la de la zona
+      // (las celdas son índices: reinterpretarlas con otra grilla movería y
+      // redimensionaría la zona sobre el piso).
+      let etiquetas=[], celdasZona=new Set(), zonaCeldaPx=20, zonaCeldaPxPlano=20, zonaCeldaMetros=null;
       let pintando=false, borrandoCeldas=false, zonaEditandoId=null;
 
       const claveCelda=(c,f)=>`${c},${f}`;
+      // Los nombres de etiqueta y de zona se muestran con innerHTML, y el
+      // catálogo se puede IMPORTAR de un archivo que no escribió quien lo
+      // carga: sin escapar, ese archivo puede inyectar HTML/JS en un panel
+      // que tiene acceso completo a la API de calibración.
+      const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      // El detail de un 422 de pydantic es una LISTA de errores, no un
+      // string: sin esto el alert mostraba "[object Object]".
+      const msgError=(d,porDefecto)=>typeof d==='string'?d:(Array.isArray(d)?d.map(e=>e.msg||JSON.stringify(e)).join(' · '):porDefecto);
       function celdaDesdeEvento(event){
         const rect=canvas.getBoundingClientRect();
         const x=(event.clientX-rect.left)*(canvas.width/rect.width);
@@ -1640,6 +1767,9 @@ def panel_calibracion() -> str:
         }
         if(modo==='zona') dibujarGrilla();
         zonas.forEach(z=>{
+          // La zona en edición no se dibuja acá: se dibuja abajo desde
+          // celdasZona. Si no, se verían las dos copias superpuestas.
+          if(z.id===zonaEditandoId) return;
           if(z.celdas&&z.celdas.length){
             pintarCeldas(z.celdas,z.color||'#00ff88',z.celda_px,false);
             etiquetaZona(z);
@@ -1723,6 +1853,7 @@ def panel_calibracion() -> str:
 
       function modoZona(){
         modo='zona'; celdasZona=new Set(); zonaEditandoId=null;
+        zonaCeldaPx=zonaCeldaPxPlano;  // vuelve a la grilla actual del plano
         ocultarControles();
         $('#controles-zona').style.display='block';
         $('#instrucciones').textContent='Pintá las celdas arrastrando el mouse. Shift+arrastrar borra. Elegí la etiqueta y guardá.';
@@ -1748,7 +1879,18 @@ def panel_calibracion() -> str:
         if(modo==='calibrar') modoCalibrar();
         else if(modo==='contorno') modoContorno();
         else if(modo==='escala') modoEscala();
-        else if(modo==='zona') modoZona();
+        else if(modo==='zona'){
+          // "Limpiar" borra lo pintado pero NO cancela la edición en curso:
+          // si la cancelara, el guardado siguiente crearía una zona nueva y
+          // quedarían dos superpuestas con el mismo nombre.
+          const editando=zonaEditandoId, px=zonaCeldaPx;
+          modoZona();
+          if(editando){
+            zonaEditandoId=editando; zonaCeldaPx=px;
+            const z=zonas.find(x=>x.id===editando);
+            $('#instrucciones').textContent=`Editando "${z?z.name:''}" — repintá las celdas y guardá.`;
+          }
+        }
         else {redraw(); redrawVideo();}
       }
 
@@ -1828,7 +1970,7 @@ def panel_calibracion() -> str:
       async function guardarPosicion(punto){
         const r=await fetch(`/api/camaras/${camaraSel}/posicion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({posicion:punto})});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al ubicar la cámara');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al ubicar la cámara'));return;}
         modo=null;
         $('#instrucciones').textContent='Ubicación guardada. Seguí con el paso 4 para calibrar lo que ve.';
         await cargarCamaras();
@@ -1838,7 +1980,7 @@ def panel_calibracion() -> str:
         if(poligonoContorno.length<3) return alert('Dibujá al menos 3 puntos.');
         const r=await fetch('/api/plano/contorno',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({polygon:poligonoContorno})});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al guardar la forma');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al guardar la forma'));return;}
         modo=null; poligonoContorno=[];
         ocultarControles();
         $('#instrucciones').textContent='Forma del local guardada.';
@@ -1858,7 +2000,7 @@ def panel_calibracion() -> str:
         if(!metros||metros<=0) return alert('Escribí la distancia real en metros (mayor a 0).');
         const r=await fetch('/api/plano/escala',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos:puntosEscala,metros})});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al guardar la escala');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al guardar la escala'));return;}
         modo=null; puntosEscala=[]; $('#escala_metros').value='';
         ocultarControles();
         const lado=(data.celda_px/data.pixeles_por_metro).toFixed(2);
@@ -1877,7 +2019,7 @@ def panel_calibracion() -> str:
       async function confirmarCalibracion(){
         const r=await fetch(`/api/camaras/${camaraSel}/calibracion`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({puntos_plano:puntosCalibracion,puntos_camara:puntosVideo})});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al calibrar');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al calibrar'));return;}
         modo=null; puntosCalibracion=[]; puntosVideo=[];
         ocultarControles();
         $('#instrucciones').textContent='Calibración guardada. Lo que ve esta cámara ya se proyecta al plano.';
@@ -1894,11 +2036,11 @@ def panel_calibracion() -> str:
         const url=zonaEditandoId?`/api/zonas/${zonaEditandoId}`:'/api/zonas';
         const r=await fetch(url,{method:zonaEditandoId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cuerpo)});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al guardar la zona');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al guardar la zona'));return;}
         celdasZona=new Set(); zonaEditandoId=null;
         $('#instrucciones').textContent='Zona guardada. Podés pintar la siguiente.';
         actualizarResumenZona();
-        await cargarZonas();
+        await cargarZonas(); await cargarCatalogo();
       }
 
       function editarZona(id){
@@ -1907,10 +2049,16 @@ def panel_calibracion() -> str:
         if(!z.celdas||!z.celdas.length) return alert('Esta zona es de las viejas (por polígono). Borrala y pintala de nuevo con la grilla.');
         modoZona();
         zonaEditandoId=id;
+        // Se pinta sobre la grilla CON LA QUE fue creada, no sobre la actual:
+        // si alguien corrigió la escala del plano después, reinterpretar los
+        // índices con la grilla nueva movería la zona de lugar.
+        zonaCeldaPx=z.celda_px||zonaCeldaPxPlano;
         celdasZona=new Set(z.celdas.map(([c,f])=>claveCelda(c,f)));
         if(z.catalogo_id) $('#z_etiqueta').value=z.catalogo_id;
         $('#z_color').value=z.color||'#00ff88';
-        $('#instrucciones').textContent=`Editando "${z.name}". Pintá o borrá celdas y guardá.`;
+        const aviso=Math.abs(zonaCeldaPx-zonaCeldaPxPlano)>0.01
+          ? ' (se pintó con otra escala: se mantiene su grilla original)' : '';
+        $('#instrucciones').textContent=`Editando "${z.name}". Pintá o borrá celdas y guardá.${aviso}`;
         actualizarResumenZona();
         redraw();
       }
@@ -1921,14 +2069,16 @@ def panel_calibracion() -> str:
         if(!nombre) return alert('Escribí un nombre para la etiqueta.');
         const r=await fetch('/api/catalogo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,color:$('#e_color').value})});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al crear la etiqueta');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al crear la etiqueta'));return;}
         $('#e_nombre').value='';
         await cargarCatalogo();
       }
       async function borrarEtiqueta(id){
         const r=await fetch(`/api/catalogo/${id}`,{method:'DELETE'});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al borrar la etiqueta');return;}
+        // Se recarga incluso al fallar: el 422 'esta en uso' suele
+        // significar que la vista tenia el badge desactualizado.
+        if(!r.ok){alert(msgError(data.detail,'Error al borrar la etiqueta'));await cargarCatalogo();return;}
         await cargarCatalogo();
       }
       function exportarCatalogo(){
@@ -1947,7 +2097,7 @@ def panel_calibracion() -> str:
           const datos=JSON.parse(texto);
           const r=await fetch('/api/catalogo/importar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({etiquetas:datos.etiquetas||datos})});
           const res=await r.json();
-          if(!r.ok){alert(res.detail||'Error al importar');return;}
+          if(!r.ok){alert(msgError(res.detail,'Error al importar'));return;}
           alert(`Importadas ${res.agregadas} etiqueta(s) nueva(s). Total: ${res.total}.`);
           await cargarCatalogo();
         }catch(e){ alert('El archivo no es un catálogo válido.'); }
@@ -1957,12 +2107,12 @@ def panel_calibracion() -> str:
         etiquetas=(await (await fetch('/api/catalogo')).json()).etiquetas;
         const usadas=new Set(zonas.map(z=>z.catalogo_id).filter(Boolean));
         $('#lista-etiquetas').innerHTML=etiquetas.map(e=>`
-          <div class="item" style="border-left:4px solid ${e.color}">
-            <b>${e.nombre}${usadas.has(e.id)?' <span class="badge si">en uso</span>':''}</b>
-            <div class="acciones"><button class="rojo" onclick="borrarEtiqueta('${e.id}')">Borrar</button></div>
+          <div class="item" style="border-left:4px solid ${esc(e.color)}">
+            <b>${esc(e.nombre)}${usadas.has(e.id)?' <span class="badge si">en uso</span>':''}</b>
+            <div class="acciones"><button class="rojo" onclick="borrarEtiqueta('${esc(e.id)}')">Borrar</button></div>
           </div>`).join('')||'<p>Sin etiquetas. Creá la primera arriba.</p>';
         const sel=$('#z_etiqueta'), previo=sel.value;
-        sel.innerHTML=etiquetas.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('')||'<option value="">(sin etiquetas)</option>';
+        sel.innerHTML=etiquetas.map(e=>`<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join('')||'<option value="">(sin etiquetas)</option>';
         if(previo&&etiquetas.some(e=>e.id===previo)) sel.value=previo;
         alSeleccionarEtiqueta();
       }
@@ -1995,7 +2145,8 @@ def panel_calibracion() -> str:
       }
       async function borrarZona(id){
         await fetch(`/api/zonas/${id}`,{method:'DELETE'});
-        await cargarZonas();
+        // cargarCatalogo recalcula el badge 'en uso' a partir de zonas.
+        await cargarZonas(); await cargarCatalogo();
       }
 
       async function cargarCamaras(){
@@ -2021,12 +2172,12 @@ def panel_calibracion() -> str:
         $('#lista-zonas').innerHTML=zonas.map(z=>{
           const detalle=z.area_m2!=null?`${z.area_m2} m²`:(z.celdas?`${z.celdas.length} celdas`:'polígono (formato viejo)');
           return `
-          <div class="item" style="border-left:4px solid ${z.color}">
-            <b>${z.name}</b>
-            <small>${detalle}</small>
+          <div class="item" style="border-left:4px solid ${esc(z.color)}">
+            <b>${esc(z.name)}</b>
+            <small>${esc(detalle)}</small>
             <div class="acciones">
-              ${z.celdas?`<button onclick="editarZona('${z.id}')">Editar</button>`:''}
-              <button class="rojo" onclick="borrarZona('${z.id}')">Borrar</button>
+              ${z.celdas?`<button onclick="editarZona('${esc(z.id)}')">Editar</button>`:''}
+              <button class="rojo" onclick="borrarZona('${esc(z.id)}')">Borrar</button>
             </div>
           </div>`;
         }).join('')||'<p>Sin zonas todavía.</p>';
@@ -2051,7 +2202,8 @@ def panel_calibracion() -> str:
         const p=await (await fetch('/api/plano')).json();
         contorno=p.contorno||[];
         escala=p.escala||null;
-        zonaCeldaPx=p.zona_celda_px||20;
+        zonaCeldaPxPlano=p.zona_celda_px||20;
+        if(!zonaEditandoId) zonaCeldaPx=zonaCeldaPxPlano;
         zonaCeldaMetros=p.zona_celda_metros;
         $('#escala-info').textContent=p.pixeles_por_metro
           ?`Escala definida: 1 m ≈ ${p.pixeles_por_metro} px · heatmap en celdas de ${p.celda_metros}×${p.celda_metros} m · grilla de zonas de ${p.zona_celda_metros}×${p.zona_celda_metros} m.`
@@ -2067,7 +2219,7 @@ def panel_calibracion() -> str:
         form.append('file',input.files[0]);
         const r=await fetch('/api/plano/imagen',{method:'POST',body:form});
         const data=await r.json();
-        if(!r.ok){alert(data.detail||'Error al subir la imagen');return;}
+        if(!r.ok){alert(msgError(data.detail,'Error al subir la imagen'));return;}
         input.value='';
         await cargarPlano();
       }
