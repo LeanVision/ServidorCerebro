@@ -1644,7 +1644,7 @@ def panel_calibracion() -> str:
       const vcanvas=$('#video-canvas'), vctx=vcanvas.getContext('2d');
       const PALETA=['#38bdf8','#f472b6','#a78bfa','#fb923c','#4ade80'];
       let camaras=[], zonas=[], contorno=[], camaraSel=null, modo=null;
-      let puntosCalibracion=[], poligonoContorno=[], puntosVideo=[];
+      let puntosCalibracion=[], poligonoContorno=[], puntosVideo=[], previewContorno=null, contornoCerrado=false;
       let faseCalibracion='video';
       let escala=null, puntosEscala=[];
       // Zonas por grilla: se pinta arrastrando, como seleccionar celdas en Excel.
@@ -1765,7 +1765,7 @@ def panel_calibracion() -> str:
           ctx.fillStyle='#1e293b88';ctx.fill();
           ctx.strokeStyle='#94a3b8';ctx.lineWidth=3;ctx.stroke();
         }
-        if(modo==='zona') dibujarGrilla();
+        if(modo==='zona'||modo==='contorno') dibujarGrilla();
         zonas.forEach(z=>{
           // La zona en edición no se dibuja acá: se dibuja abajo desde
           // celdasZona. Si no, se verían las dos copias superpuestas.
@@ -1792,7 +1792,19 @@ def panel_calibracion() -> str:
           pintarCeldas(celdas,$('#z_color').value||'#facc15',zonaCeldaPx,true);
         } else if(modo==='contorno'){
           dibujarPoligono(poligonoContorno,'#38bdf8',poligonoContorno.length>=3,null,false);
+          if(previewContorno&&poligonoContorno.length){
+            const ultimo=poligonoContorno[poligonoContorno.length-1];
+            ctx.setLineDash([5,4]); ctx.strokeStyle='#38bdf8aa'; ctx.lineWidth=2;
+            ctx.beginPath(); ctx.moveTo(...ultimo); ctx.lineTo(...previewContorno); ctx.stroke();
+            ctx.setLineDash([]);
+          }
           marcarPuntos(ctx,poligonoContorno,'#38bdf8',false);
+          if(poligonoContorno.length){
+            // Resalta la primera esquina: es la referencia para saber dónde
+            // va a cerrar la forma.
+            ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2;
+            ctx.beginPath(); ctx.arc(poligonoContorno[0][0],poligonoContorno[0][1],10,0,7); ctx.stroke();
+          }
         }
       }
 
@@ -1826,11 +1838,59 @@ def panel_calibracion() -> str:
       }
 
       function modoContorno(){
-        modo='contorno'; poligonoContorno=[];
+        modo='contorno'; poligonoContorno=[]; previewContorno=null; contornoCerrado=false;
+        zonaCeldaPx=zonaCeldaPxPlano; zonaEditandoId=null;
         ocultarControles();
         $('#controles-contorno').style.display='block';
-        $('#instrucciones').textContent='Dibujá la forma del local: un clic por esquina (puede ser en L o irregular), doble clic para cerrar.';
+        $('#instrucciones').textContent='Clic en cada esquina del local. Las paredes salen rectas solas y se pegan a la grilla; doble clic para cerrar.';
         redraw(); redrawVideo();
+      }
+
+      // --- Dibujo del local con paredes en ángulo recto ---
+      function ajustarAGrilla(p){
+        const g=zonaCeldaPxPlano;
+        // Se acota al plano: redondear al múltiplo más cercano puede empujar
+        // la esquina hasta media celda AFUERA del canvas, y dibujar el
+        // contorno pegado al borde es el caso normal, no el raro.
+        return [
+          Math.min(canvas.width, Math.max(0, Math.round(p[0]/g)*g)),
+          Math.min(canvas.height, Math.max(0, Math.round(p[1]/g)*g)),
+        ];
+      }
+      function forzarOrtogonal(anterior,p){
+        // Cada pared es horizontal o vertical: se conserva el eje en el que
+        // más se movió el mouse y se alinea el otro con la esquina anterior.
+        if(!anterior) return p;
+        return Math.abs(p[0]-anterior[0])>=Math.abs(p[1]-anterior[1])
+          ? [p[0],anterior[1]]
+          : [anterior[0],p[1]];
+      }
+      function esquinaContorno(evento){
+        const p=ajustarAGrilla(pointFromEvent(evento));
+        return forzarOrtogonal(poligonoContorno[poligonoContorno.length-1],p);
+      }
+      function cerrarContorno(){
+        if(poligonoContorno.length<3){
+          $('#instrucciones').textContent='Marcá al menos 3 esquinas antes de cerrar.';
+          return;
+        }
+        const primero=poligonoContorno[0], ultimo=poligonoContorno[poligonoContorno.length-1];
+        // La pared de cierre también tiene que ser recta: si la última
+        // esquina no comparte eje con la primera, se agrega la esquina que
+        // falta en vez de dejar una diagonal.
+        if(ultimo[0]!==primero[0]&&ultimo[1]!==primero[1]){
+          // CUÁL de las dos esquinas posibles depende de hacia dónde iba la
+          // última pared: salir en la misma dirección sería retroceder sobre
+          // ella, dejando una espiga de ancho cero que recorta parte del
+          // local (y que igual pasa la validación de área del servidor).
+          const anteultimo=poligonoContorno[poligonoContorno.length-2];
+          const ultimaHorizontal=anteultimo[1]===ultimo[1];
+          poligonoContorno.push(ultimaHorizontal?[ultimo[0],primero[1]]:[primero[0],ultimo[1]]);
+        }
+        contornoCerrado=true;
+        previewContorno=null;
+        $('#instrucciones').textContent=`Local cerrado (${poligonoContorno.length} esquinas). Guardalo, o Limpiar para rehacerlo.`;
+        redraw();
       }
 
       function modoPosicion(){
@@ -1875,7 +1935,7 @@ def panel_calibracion() -> str:
       }
 
       function limpiarDibujo(){
-        puntosCalibracion=[]; poligonoContorno=[]; puntosVideo=[]; puntosEscala=[];
+        puntosCalibracion=[]; poligonoContorno=[]; puntosVideo=[]; puntosEscala=[]; previewContorno=null; contornoCerrado=false;
         if(modo==='calibrar') modoCalibrar();
         else if(modo==='contorno') modoContorno();
         else if(modo==='escala') modoEscala();
@@ -1910,7 +1970,16 @@ def panel_calibracion() -> str:
         aplicarCelda(event);
       });
       canvas.addEventListener('mousemove',(event)=>{
-        if(modo==='zona'&&pintando) aplicarCelda(event);
+        if(modo==='zona'&&pintando){ aplicarCelda(event); return; }
+        if(modo==='contorno'&&poligonoContorno.length&&!contornoCerrado){
+          // Previsualiza la pared antes de fijarla, así se ve para qué lado
+          // va a salir sin tener que adivinar.
+          previewContorno=esquinaContorno(event);
+          redraw();
+        }
+      });
+      canvas.addEventListener('mouseleave',()=>{
+        if(previewContorno){ previewContorno=null; redraw(); }
       });
       // El mouseup va en window y no en el canvas: si se suelta el botón
       // fuera del plano (muy común al pintar hasta el borde), sin esto el
@@ -1948,11 +2017,19 @@ def panel_calibracion() -> str:
             $('#controles-calibracion').style.display='block';
           }
         } else if(modo==='contorno'){
-          if(event.detail===2){
-            if(poligonoContorno.length>=3) $('#instrucciones').textContent='Forma lista — guardala.';
+          if(event.detail>=2){ cerrarContorno(); return; }
+          if(contornoCerrado){
+            $('#instrucciones').textContent='El local ya está cerrado. Guardalo, o tocá Limpiar para rehacerlo.';
             return;
           }
-          poligonoContorno.push(p); redraw();
+          const esquina=esquinaContorno(event);
+          const anterior=poligonoContorno[poligonoContorno.length-1];
+          // Dos clics en la misma celda dejarían un vértice de arista cero.
+          if(anterior&&anterior[0]===esquina[0]&&anterior[1]===esquina[1]) return;
+          poligonoContorno.push(esquina);
+          previewContorno=null;
+          $('#instrucciones').textContent=`${poligonoContorno.length} esquina${poligonoContorno.length===1?'':'s'}. Seguí marcando; doble clic para cerrar.`;
+          redraw();
         } else if(modo==='escala'){
           // El paso 1 cierra el contorno con doble clic: acá ese mismo gesto
           // marcaría los 2 puntos superpuestos, así que se ignora el 2do click.
