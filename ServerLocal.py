@@ -77,6 +77,15 @@ HEATMAP_CELDA_BASE_PX = 10
 HEATMAP_CELDA_PX = 20  # celda visible cuando no hay escala real definida.
 HEATMAP_CELDA_MIN_PX = 10  # nunca menor que la celda base.
 HEATMAP_CELDA_MAX_PX = 160
+
+# Las zonas de negocio se pintan sobre una grilla, no se dibujan vértice por
+# vértice. Media hora de metro cuadrado: entran 4 celdas de zona en cada celda
+# de 1 m² del heatmap, así que las dos grillas quedan alineadas y una zona
+# siempre cubre un número entero de celdas de heatmap.
+ZONA_CELDA_METROS = 0.5
+ZONA_CELDA_PX_SIN_ESCALA = 20  # fallback mientras no se definió la escala real.
+ZONA_CELDA_MIN_PX = 8
+ZONA_CELDA_MAX_PX = 120
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
@@ -163,7 +172,16 @@ contorno_local: list[list[float]] = []
 # puntos de referencia del plano y la distancia real entre ellos. None = sin
 # definir (el heatmap cae a celdas de HEATMAP_CELDA_PX, como siempre).
 escala_plano: dict | None = None
+# Catálogo de etiquetas de zona: [{"id","nombre","color"}]. Define UNA vez los
+# tipos de zona del negocio ("Ropa de mujer", "Caja", "Probadores") y cada
+# sucursal sólo pinta dónde caen. Que el id sea estable entre sucursales es lo
+# que permite comparar la misma zona en varios locales sin depender de que
+# alguien escriba el nombre igual en cada uno.
+catalogo_zonas: list[dict] = []
 _homografias_cache: dict[str, np.ndarray] = {}
+# zona_id -> set de (col, fila). Se arma al cargar/guardar zonas para que la
+# búsqueda de zona por punto sea O(1) en el camino caliente de detecciones.
+_celdas_zona_cache: dict[str, set[tuple[int, int]]] = {}
 contador_global_ids = 1
 cola_reid: asyncio.Queue[DetectionJob] | None = None
 reid_executor = ThreadPoolExecutor(max_workers=REID_WORKERS, thread_name_prefix="reid")
@@ -209,7 +227,23 @@ class CalibracionIn(BaseModel):
 class ZonaIn(BaseModel):
     name: str
     color: str = "#00ff88"
-    polygon: list[list[float]]
+    # Formato nuevo: celdas [[col, fila], ...] pintadas sobre la grilla.
+    # Formato viejo: polygon [[x, y], ...]. Se acepta cualquiera de los dos
+    # (las zonas dibujadas antes de la grilla siguen funcionando igual).
+    celdas: list[list[int]] | None = None
+    polygon: list[list[float]] | None = None
+    # Etiqueta del catálogo a la que pertenece, si se eligió una.
+    catalogo_id: str | None = None
+
+
+class EtiquetaIn(BaseModel):
+    nombre: str
+    color: str = "#00ff88"
+
+
+class CatalogoIn(BaseModel):
+    # Para importar un catálogo completo desde otra sucursal.
+    etiquetas: list[dict]
 
 
 class ContornoIn(BaseModel):
@@ -381,6 +415,38 @@ def _celda_heatmap_px() -> int:
     return max(HEATMAP_CELDA_MIN_PX, min(HEATMAP_CELDA_MAX_PX, round(ppm)))
 
 
+def _celda_zona_px() -> float:
+    """Lado en píxeles de la celda de zona (ZONA_CELDA_METROS reales).
+
+    Devuelve float a propósito: con escalas reales el valor casi nunca es
+    entero (0,5 m a 53,83 px/m son 26,9 px), y redondearlo acumularía error
+    de alineación a lo ancho del plano.
+    """
+    ppm = _pixeles_por_metro()
+    if ppm is None:
+        return float(ZONA_CELDA_PX_SIN_ESCALA)
+    return max(ZONA_CELDA_MIN_PX, min(ZONA_CELDA_MAX_PX, ppm * ZONA_CELDA_METROS))
+
+
+def _reindexar_celdas_zonas() -> None:
+    """Rearma el índice (zona_id -> set de celdas) que usa _zona_en_punto.
+
+    Se llama al cargar del disco y en cada alta/baja/edición de zonas: son
+    operaciones administrativas y poco frecuentes, así que conviene pagar acá
+    y dejar la búsqueda por detección en O(1).
+    """
+    _celdas_zona_cache.clear()
+    for zona in zonas_negocio:
+        celdas = zona.get("celdas")
+        if not celdas:
+            continue
+        _celdas_zona_cache[zona["id"]] = {
+            (int(celda[0]), int(celda[1]))
+            for celda in celdas
+            if isinstance(celda, (list, tuple)) and len(celda) == 2
+        }
+
+
 def _registrar_heatmap(pos_x: float, pos_y: float) -> None:
     """Acumula presencia en la celda base de la grilla, sin decaimiento."""
     if not (0 <= pos_x < HEATMAP_WIDTH and 0 <= pos_y < HEATMAP_HEIGHT):
@@ -437,6 +503,7 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
         calibraciones_camaras.update(datos.get("camaras", {}))
         zonas_negocio.extend(datos.get("zonas", []))
         contorno_local[:] = datos.get("contorno", [])
+        catalogo_zonas.extend(datos.get("catalogo", []))
         escala = datos.get("escala")
         if escala is not None:
             if _escala_valida(escala):
@@ -445,6 +512,7 @@ def _cargar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
                 logger.warning("Escala inválida en %s, se ignora (%r).", ruta, escala)
         for camara_id in calibraciones_camaras:
             _recalcular_homografia(camara_id)
+        _reindexar_celdas_zonas()
     except (OSError, AttributeError, TypeError, json.JSONDecodeError, ValueError) as error:
         logger.warning("No se pudo cargar %s, se ignora (%r).", ruta, error)
 
@@ -456,6 +524,7 @@ def _guardar_plano_config(ruta: str = PLANO_CONFIG_PATH) -> None:
         "zonas": zonas_negocio,
         "contorno": contorno_local,
         "escala": escala_plano,
+        "catalogo": catalogo_zonas,
     }
     ruta_tmp = f"{ruta}.tmp"
     with open(ruta_tmp, "w", encoding="utf-8") as archivo:
@@ -478,11 +547,39 @@ def _punto_en_poligono(px: float, py: float, polygon: list) -> bool:
 
 
 def _zona_en_punto(x: float, y: float) -> str | None:
-    """Nombre de la primera zona de negocio que contiene el punto, o None."""
+    """Nombre de la primera zona de negocio que contiene el punto, o None.
+
+    Soporta los dos formatos: zonas nuevas pintadas sobre la grilla (celdas,
+    búsqueda O(1) contra un set) y zonas viejas dibujadas vértice por vértice
+    (polígono, ray-casting). Corre por cada detección, así que las de grilla
+    se resuelven sin recorrer geometría.
+    """
     for zona in zonas_negocio:
-        if _punto_en_poligono(x, y, zona["polygon"]):
+        celdas = _celdas_zona_cache.get(zona["id"])
+        if celdas is not None:
+            # Cada zona guarda el tamaño de celda con el que fue pintada: si
+            # después se corrige la escala del plano, la zona conserva la
+            # superficie real que se dibujó en su momento.
+            celda_px = zona.get("celda_px") or _celda_zona_px()
+            if celda_px > 0 and (int(x // celda_px), int(y // celda_px)) in celdas:
+                return zona["name"]
+            continue
+        poligono = zona.get("polygon")
+        if poligono and _punto_en_poligono(x, y, poligono):
             return zona["name"]
     return None
+
+
+def _area_zona_m2(zona: dict) -> float | None:
+    """Superficie real de una zona de grilla, o None si no se puede calcular
+    (zona vieja de polígono, o plano sin escala definida)."""
+    celdas = zona.get("celdas")
+    celda_px = zona.get("celda_px")
+    ppm = _pixeles_por_metro()
+    if not celdas or not celda_px or ppm is None:
+        return None
+    lado_metros = celda_px / ppm
+    return round(len(celdas) * lado_metros * lado_metros, 2)
 
 
 def _area_poligono(polygon: list) -> float:
@@ -1035,6 +1132,9 @@ def obtener_plano() -> dict:
             "pixeles_por_metro": round(ppm, 2) if ppm else None,
             "celda_px": celda_px,
             "celda_metros": round(celda_px / ppm, 2) if ppm else None,
+            # Grilla de zonas (más fina que la del heatmap, ver ZONA_CELDA_METROS).
+            "zona_celda_px": round(_celda_zona_px(), 3),
+            "zona_celda_metros": ZONA_CELDA_METROS if ppm else None,
         }
 
 
@@ -1143,38 +1243,81 @@ def borrar_imagen_plano() -> dict:
     return {"ok": True}
 
 
+def _validar_celdas(celdas: list) -> list[list[int]]:
+    """Normaliza y deduplica las celdas pintadas. Las celdas fuera del plano
+    se descartan en vez de rechazar todo: pintar arrastrando el mouse hasta
+    el borde es normal y no debería fallar."""
+    celda_px = _celda_zona_px()
+    max_col = int(HEATMAP_WIDTH // celda_px) + 1
+    max_fila = int(HEATMAP_HEIGHT // celda_px) + 1
+    limpias: set[tuple[int, int]] = set()
+    for celda in celdas:
+        if not isinstance(celda, (list, tuple)) or len(celda) != 2:
+            raise HTTPException(status_code=422, detail="Cada celda debe ser un par [columna, fila].")
+        try:
+            col, fila = int(celda[0]), int(celda[1])
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail="Las celdas deben ser números enteros.") from error
+        if 0 <= col <= max_col and 0 <= fila <= max_fila:
+            limpias.add((col, fila))
+    if not limpias:
+        raise HTTPException(status_code=422, detail="La zona no tiene ninguna celda pintada dentro del plano.")
+    return [[col, fila] for col, fila in sorted(limpias)]
+
+
+def _armar_zona(zona: ZonaIn, zona_id: str) -> dict:
+    """Construye el dict de una zona desde el payload, aceptando tanto el
+    formato de grilla (celdas) como el viejo de polígono."""
+    if not zona.name.strip():
+        raise HTTPException(status_code=422, detail="La zona necesita un nombre.")
+    nueva: dict = {
+        "id": zona_id,
+        "name": zona.name.strip(),
+        "color": zona.color,
+    }
+    if zona.catalogo_id:
+        nueva["catalogo_id"] = zona.catalogo_id
+    if zona.celdas:
+        nueva["celdas"] = _validar_celdas(zona.celdas)
+        # Se guarda el tamaño de celda usado al pintar: si mañana se corrige
+        # la escala del plano, la zona sigue representando la misma
+        # superficie real en vez de estirarse o encogerse sola.
+        nueva["celda_px"] = round(_celda_zona_px(), 3)
+    elif zona.polygon:
+        if len(zona.polygon) < 3:
+            raise HTTPException(status_code=422, detail="Una zona por polígono necesita al menos 3 puntos.")
+        nueva["polygon"] = zona.polygon
+    else:
+        raise HTTPException(status_code=422, detail="Pintá al menos una celda para definir la zona.")
+    return nueva
+
+
 @app.get("/api/zonas")
 def listar_zonas() -> dict:
     with state_lock:
-        return {"zones": list(zonas_negocio)}
+        zonas = [{**zona, "area_m2": _area_zona_m2(zona)} for zona in zonas_negocio]
+        return {"zones": zonas, "celda_px": round(_celda_zona_px(), 3), "celda_metros": ZONA_CELDA_METROS}
 
 
 @app.post("/api/zonas")
 def crear_zona(zona: ZonaIn) -> dict:
-    if len(zona.polygon) < 3:
-        raise HTTPException(status_code=422, detail="La zona necesita al menos 3 puntos.")
     with state_lock:
-        nueva = {
-            "id": f"zona_{len(zonas_negocio) + 1}_{int(time.time())}",
-            "name": zona.name,
-            "color": zona.color,
-            "polygon": zona.polygon,
-        }
+        nueva = _armar_zona(zona, f"zona_{len(zonas_negocio) + 1}_{int(time.time())}")
         zonas_negocio.append(nueva)
+        _reindexar_celdas_zonas()
         _guardar_plano_config()
     return nueva
 
 
 @app.put("/api/zonas/{zona_id}")
 def editar_zona(zona_id: str, zona: ZonaIn) -> dict:
-    if len(zona.polygon) < 3:
-        raise HTTPException(status_code=422, detail="La zona necesita al menos 3 puntos.")
     with state_lock:
-        for existente in zonas_negocio:
+        for indice, existente in enumerate(zonas_negocio):
             if existente["id"] == zona_id:
-                existente.update(name=zona.name, color=zona.color, polygon=zona.polygon)
+                zonas_negocio[indice] = _armar_zona(zona, zona_id)
+                _reindexar_celdas_zonas()
                 _guardar_plano_config()
-                return existente
+                return zonas_negocio[indice]
     raise HTTPException(status_code=404, detail="Zona no encontrada.")
 
 
@@ -1185,8 +1328,80 @@ def borrar_zona(zona_id: str) -> dict:
         if len(restantes) == len(zonas_negocio):
             raise HTTPException(status_code=404, detail="Zona no encontrada.")
         zonas_negocio[:] = restantes
+        _reindexar_celdas_zonas()
         _guardar_plano_config()
     return {"ok": True}
+
+
+# --- Catálogo de etiquetas de zona: se define una vez y se reutiliza en
+# todas las sucursales, para poder comparar la misma zona entre locales. ---
+
+
+@app.get("/api/catalogo")
+def listar_catalogo() -> dict:
+    with state_lock:
+        return {"etiquetas": list(catalogo_zonas)}
+
+
+@app.post("/api/catalogo")
+def crear_etiqueta(etiqueta: EtiquetaIn) -> dict:
+    nombre = etiqueta.nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=422, detail="La etiqueta necesita un nombre.")
+    with state_lock:
+        if any(e["nombre"].lower() == nombre.lower() for e in catalogo_zonas):
+            raise HTTPException(status_code=422, detail=f"Ya existe una etiqueta llamada '{nombre}'.")
+        # El id se deriva del nombre para que sea el MISMO en todas las
+        # sucursales: es lo que permite agrupar "Ropa de mujer" entre locales
+        # aunque cada uno la haya cargado por su cuenta.
+        base = "".join(c if c.isalnum() else "_" for c in nombre.lower()).strip("_")
+        nueva = {"id": f"cat_{base or int(time.time())}", "nombre": nombre, "color": etiqueta.color}
+        catalogo_zonas.append(nueva)
+        _guardar_plano_config()
+    return nueva
+
+
+@app.delete("/api/catalogo/{etiqueta_id}")
+def borrar_etiqueta(etiqueta_id: str) -> dict:
+    with state_lock:
+        en_uso = [z["name"] for z in zonas_negocio if z.get("catalogo_id") == etiqueta_id]
+        if en_uso:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La etiqueta está en uso por {len(en_uso)} zona(s) de este plano. Borrá esas zonas primero.",
+            )
+        restantes = [e for e in catalogo_zonas if e["id"] != etiqueta_id]
+        if len(restantes) == len(catalogo_zonas):
+            raise HTTPException(status_code=404, detail="Etiqueta no encontrada.")
+        catalogo_zonas[:] = restantes
+        _guardar_plano_config()
+    return {"ok": True}
+
+
+@app.post("/api/catalogo/importar")
+def importar_catalogo(payload: CatalogoIn) -> dict:
+    """Agrega las etiquetas de otra sucursal sin pisar las locales: las que
+    ya existen (mismo id) se saltean, para poder replicar el catálogo entre
+    locales corriendo esto sin miedo más de una vez."""
+    agregadas = 0
+    with state_lock:
+        existentes = {e["id"] for e in catalogo_zonas}
+        for etiqueta in payload.etiquetas:
+            if not isinstance(etiqueta, dict):
+                continue
+            id_etiqueta, nombre = etiqueta.get("id"), etiqueta.get("nombre")
+            if not id_etiqueta or not nombre or id_etiqueta in existentes:
+                continue
+            catalogo_zonas.append({
+                "id": str(id_etiqueta),
+                "nombre": str(nombre),
+                "color": str(etiqueta.get("color", "#00ff88")),
+            })
+            existentes.add(id_etiqueta)
+            agregadas += 1
+        if agregadas:
+            _guardar_plano_config()
+    return {"ok": True, "agregadas": agregadas, "total": len(catalogo_zonas)}
 
 
 @app.get("/calibrar", response_class=HTMLResponse)
@@ -1278,16 +1493,32 @@ def panel_calibracion() -> str:
         </div>
         <div id="controles-zona" style="display:none">
           <div class="fila">
-            <input id="z_nombre" placeholder="Nombre de la zona">
+            <select id="z_etiqueta" onchange="alSeleccionarEtiqueta()"></select>
             <input id="z_color" type="color" value="#00ff88" style="width:44px;padding:2px">
           </div>
-          <button onclick="guardarZona()">Guardar zona (doble clic para cerrar el polígono)</button>
+          <p class="paso" id="zona-resumen">Sin celdas pintadas.</p>
+          <button onclick="guardarZona()">Guardar zona</button>
           <button class="gris" onclick="limpiarDibujo()">Limpiar</button>
         </div>
       </section>
 
       <section class="panel lado">
-        <h2>Zonas de negocio</h2>
+        <h2>Etiquetas</h2>
+        <p class="paso">Se definen una vez y se reutilizan en todas las sucursales. Comparar la misma zona entre locales depende de que usen la misma etiqueta.</p>
+        <div class="fila">
+          <input id="e_nombre" placeholder="Ej: Ropa de mujer">
+          <input id="e_color" type="color" value="#38bdf8" style="width:44px;padding:2px">
+        </div>
+        <button onclick="crearEtiqueta()">Agregar etiqueta</button>
+        <div id="lista-etiquetas" style="margin-top:10px"></div>
+        <div style="margin-top:12px;border-top:1px solid #334155;padding-top:10px">
+          <button class="gris" onclick="exportarCatalogo()">Exportar catálogo</button>
+          <button class="gris" onclick="$('#importar_input').click()">Importar</button>
+          <input id="importar_input" type="file" accept="application/json" style="display:none" onchange="importarCatalogo(this)">
+          <p class="paso">Para replicar las mismas etiquetas en otra sucursal.</p>
+        </div>
+
+        <h2 style="margin-top:18px">Zonas de este local</h2>
         <div id="lista-zonas"></div>
       </section>
 
@@ -1298,9 +1529,20 @@ def panel_calibracion() -> str:
       const vcanvas=$('#video-canvas'), vctx=vcanvas.getContext('2d');
       const PALETA=['#38bdf8','#f472b6','#a78bfa','#fb923c','#4ade80'];
       let camaras=[], zonas=[], contorno=[], camaraSel=null, modo=null;
-      let puntosCalibracion=[], poligonoZona=[], poligonoContorno=[], puntosVideo=[];
+      let puntosCalibracion=[], poligonoContorno=[], puntosVideo=[];
       let faseCalibracion='video';
       let escala=null, puntosEscala=[];
+      // Zonas por grilla: se pinta arrastrando, como seleccionar celdas en Excel.
+      let etiquetas=[], celdasZona=new Set(), zonaCeldaPx=20, zonaCeldaMetros=null;
+      let pintando=false, borrandoCeldas=false, zonaEditandoId=null;
+
+      const claveCelda=(c,f)=>`${c},${f}`;
+      function celdaDesdeEvento(event){
+        const rect=canvas.getBoundingClientRect();
+        const x=(event.clientX-rect.left)*(canvas.width/rect.width);
+        const y=(event.clientY-rect.top)*(canvas.height/rect.height);
+        return [Math.floor(x/zonaCeldaPx), Math.floor(y/zonaCeldaPx)];
+      }
 
       function pointFrom(event,el,w,h){
         const rect=el.getBoundingClientRect();
@@ -1360,6 +1602,35 @@ def panel_calibracion() -> str:
         }
       }
 
+      function dibujarGrilla(){
+        if(zonaCeldaPx<4) return;
+        ctx.strokeStyle='#64748b44';ctx.lineWidth=1;
+        ctx.beginPath();
+        for(let x=0;x<=canvas.width;x+=zonaCeldaPx){ctx.moveTo(Math.round(x)+0.5,0);ctx.lineTo(Math.round(x)+0.5,canvas.height);}
+        for(let y=0;y<=canvas.height;y+=zonaCeldaPx){ctx.moveTo(0,Math.round(y)+0.5);ctx.lineTo(canvas.width,Math.round(y)+0.5);}
+        ctx.stroke();
+      }
+
+      function pintarCeldas(celdas,color,celdaPx,resaltar){
+        const lado=celdaPx||zonaCeldaPx;
+        ctx.fillStyle=color+(resaltar?'99':'55');
+        celdas.forEach(([c,f])=>ctx.fillRect(c*lado,f*lado,lado,lado));
+        if(resaltar){
+          ctx.strokeStyle=color;ctx.lineWidth=1;
+          celdas.forEach(([c,f])=>ctx.strokeRect(c*lado+0.5,f*lado+0.5,lado-1,lado-1));
+        }
+      }
+
+      function etiquetaZona(z){
+        if(!z.celdas||!z.celdas.length) return;
+        // Etiqueta en la celda de más arriba a la izquierda, para que no quede
+        // flotando en un punto vacío si la zona tiene forma irregular.
+        const lado=z.celda_px||zonaCeldaPx;
+        const [c,f]=z.celdas.reduce((a,b)=>(b[1]<a[1]||(b[1]===a[1]&&b[0]<a[0]))?b:a);
+        ctx.fillStyle='white';ctx.font='12px sans-serif';
+        ctx.fillText(z.name,c*lado+3,f*lado+13);
+      }
+
       function redraw(){
         ctx.clearRect(0,0,canvas.width,canvas.height);
         if(contorno.length>=3){
@@ -1367,7 +1638,15 @@ def panel_calibracion() -> str:
           ctx.fillStyle='#1e293b88';ctx.fill();
           ctx.strokeStyle='#94a3b8';ctx.lineWidth=3;ctx.stroke();
         }
-        zonas.forEach(z=>dibujarPoligono(z.polygon,z.color||'#00ff88',true,z.name,false));
+        if(modo==='zona') dibujarGrilla();
+        zonas.forEach(z=>{
+          if(z.celdas&&z.celdas.length){
+            pintarCeldas(z.celdas,z.color||'#00ff88',z.celda_px,false);
+            etiquetaZona(z);
+          } else if(z.polygon){
+            dibujarPoligono(z.polygon,z.color||'#00ff88',true,z.name,false);
+          }
+        });
         camaras.forEach(c=>{if(c.puntos_plano) dibujarPoligono(c.puntos_plano,colorCamara(c.camara_id),false,null,true);});
         camaras.forEach(dibujarCamara);
         if(modo==='escala'){
@@ -1379,8 +1658,8 @@ def panel_calibracion() -> str:
           dibujarPoligono(puntosCalibracion,'#facc15',false,null,false);
           marcarPuntos(ctx,puntosCalibracion,'#facc15',true);
         } else if(modo==='zona'){
-          dibujarPoligono(poligonoZona,'#facc15',poligonoZona.length>=3,null,false);
-          marcarPuntos(ctx,poligonoZona,'#facc15',false);
+          const celdas=[...celdasZona].map(k=>k.split(',').map(Number));
+          pintarCeldas(celdas,$('#z_color').value||'#facc15',zonaCeldaPx,true);
         } else if(modo==='contorno'){
           dibujarPoligono(poligonoContorno,'#38bdf8',poligonoContorno.length>=3,null,false);
           marcarPuntos(ctx,poligonoContorno,'#38bdf8',false);
@@ -1443,20 +1722,58 @@ def panel_calibracion() -> str:
       }
 
       function modoZona(){
-        modo='zona'; poligonoZona=[];
+        modo='zona'; celdasZona=new Set(); zonaEditandoId=null;
         ocultarControles();
         $('#controles-zona').style.display='block';
-        $('#instrucciones').textContent='Clic para agregar vértices de la zona (mínimo 3), doble clic para cerrar.';
+        $('#instrucciones').textContent='Pintá las celdas arrastrando el mouse. Shift+arrastrar borra. Elegí la etiqueta y guardá.';
+        actualizarResumenZona();
         redraw(); redrawVideo();
       }
 
+      function actualizarResumenZona(){
+        const n=celdasZona.size;
+        if(!n){ $('#zona-resumen').textContent='Sin celdas pintadas.'; return; }
+        const area=zonaCeldaMetros?` · ${(n*zonaCeldaMetros*zonaCeldaMetros).toFixed(2)} m²`:'';
+        $('#zona-resumen').textContent=`${n} celda${n===1?'':'s'}${area}`;
+      }
+
+      function alSeleccionarEtiqueta(){
+        const et=etiquetas.find(e=>e.id===$('#z_etiqueta').value);
+        if(et) $('#z_color').value=et.color;
+        redraw();
+      }
+
       function limpiarDibujo(){
-        puntosCalibracion=[]; poligonoZona=[]; poligonoContorno=[]; puntosVideo=[]; puntosEscala=[];
+        puntosCalibracion=[]; poligonoContorno=[]; puntosVideo=[]; puntosEscala=[];
         if(modo==='calibrar') modoCalibrar();
         else if(modo==='contorno') modoContorno();
         else if(modo==='escala') modoEscala();
+        else if(modo==='zona') modoZona();
         else {redraw(); redrawVideo();}
       }
+
+      // --- Pintado de celdas (arrastrar como en una planilla) ---
+      function aplicarCelda(event){
+        const [c,f]=celdaDesdeEvento(event);
+        if(c<0||f<0) return;
+        const clave=claveCelda(c,f);
+        if(borrandoCeldas) celdasZona.delete(clave); else celdasZona.add(clave);
+        actualizarResumenZona();
+        redraw();
+      }
+      canvas.addEventListener('mousedown',(event)=>{
+        if(modo!=='zona') return;
+        event.preventDefault();
+        pintando=true; borrandoCeldas=event.shiftKey;
+        aplicarCelda(event);
+      });
+      canvas.addEventListener('mousemove',(event)=>{
+        if(modo==='zona'&&pintando) aplicarCelda(event);
+      });
+      // El mouseup va en window y no en el canvas: si se suelta el botón
+      // fuera del plano (muy común al pintar hasta el borde), sin esto el
+      // pintado quedaría pegado al mouse.
+      window.addEventListener('mouseup',()=>{pintando=false;});
 
       vcanvas.addEventListener('click',(event)=>{
         if(modo!=='calibrar'||faseCalibracion!=='video') return;
@@ -1488,12 +1805,6 @@ def panel_calibracion() -> str:
             $('#instrucciones').textContent='Los 4 pares están listos. Revisá y confirmá, o rehacé.';
             $('#controles-calibracion').style.display='block';
           }
-        } else if(modo==='zona'){
-          if(event.detail===2){
-            if(poligonoZona.length>=3) $('#instrucciones').textContent='Zona lista — ponele nombre y guardala.';
-            return;
-          }
-          poligonoZona.push(p); redraw();
         } else if(modo==='contorno'){
           if(event.detail===2){
             if(poligonoContorno.length>=3) $('#instrucciones').textContent='Forma lista — guardala.';
@@ -1574,15 +1885,86 @@ def panel_calibracion() -> str:
       }
 
       async function guardarZona(){
-        const nombre=$('#z_nombre').value.trim();
-        if(!nombre) return alert('Ponele un nombre a la zona.');
-        if(poligonoZona.length<3) return alert('Dibujá al menos 3 puntos.');
-        const r=await fetch('/api/zonas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nombre,color:$('#z_color').value,polygon:poligonoZona})});
+        if(!celdasZona.size) return alert('Pintá al menos una celda arrastrando el mouse sobre el plano.');
+        const etiquetaId=$('#z_etiqueta').value;
+        const etiqueta=etiquetas.find(e=>e.id===etiquetaId);
+        if(!etiqueta) return alert('Elegí una etiqueta. Si no hay ninguna, creala en el panel de la derecha.');
+        const celdas=[...celdasZona].map(k=>k.split(',').map(Number));
+        const cuerpo={name:etiqueta.nombre,color:$('#z_color').value,celdas,catalogo_id:etiqueta.id};
+        const url=zonaEditandoId?`/api/zonas/${zonaEditandoId}`:'/api/zonas';
+        const r=await fetch(url,{method:zonaEditandoId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cuerpo)});
         const data=await r.json();
         if(!r.ok){alert(data.detail||'Error al guardar la zona');return;}
-        poligonoZona=[]; $('#z_nombre').value='';
-        $('#instrucciones').textContent='Zona guardada.';
+        celdasZona=new Set(); zonaEditandoId=null;
+        $('#instrucciones').textContent='Zona guardada. Podés pintar la siguiente.';
+        actualizarResumenZona();
         await cargarZonas();
+      }
+
+      function editarZona(id){
+        const z=zonas.find(x=>x.id===id);
+        if(!z) return;
+        if(!z.celdas||!z.celdas.length) return alert('Esta zona es de las viejas (por polígono). Borrala y pintala de nuevo con la grilla.');
+        modoZona();
+        zonaEditandoId=id;
+        celdasZona=new Set(z.celdas.map(([c,f])=>claveCelda(c,f)));
+        if(z.catalogo_id) $('#z_etiqueta').value=z.catalogo_id;
+        $('#z_color').value=z.color||'#00ff88';
+        $('#instrucciones').textContent=`Editando "${z.name}". Pintá o borrá celdas y guardá.`;
+        actualizarResumenZona();
+        redraw();
+      }
+
+      // --- Catálogo de etiquetas ---
+      async function crearEtiqueta(){
+        const nombre=$('#e_nombre').value.trim();
+        if(!nombre) return alert('Escribí un nombre para la etiqueta.');
+        const r=await fetch('/api/catalogo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,color:$('#e_color').value})});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al crear la etiqueta');return;}
+        $('#e_nombre').value='';
+        await cargarCatalogo();
+      }
+      async function borrarEtiqueta(id){
+        const r=await fetch(`/api/catalogo/${id}`,{method:'DELETE'});
+        const data=await r.json();
+        if(!r.ok){alert(data.detail||'Error al borrar la etiqueta');return;}
+        await cargarCatalogo();
+      }
+      function exportarCatalogo(){
+        if(!etiquetas.length) return alert('No hay etiquetas para exportar.');
+        const blob=new Blob([JSON.stringify({etiquetas},null,2)],{type:'application/json'});
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download='catalogo-zonas.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      async function importarCatalogo(input){
+        if(!input.files.length) return;
+        try{
+          const texto=await input.files[0].text();
+          const datos=JSON.parse(texto);
+          const r=await fetch('/api/catalogo/importar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({etiquetas:datos.etiquetas||datos})});
+          const res=await r.json();
+          if(!r.ok){alert(res.detail||'Error al importar');return;}
+          alert(`Importadas ${res.agregadas} etiqueta(s) nueva(s). Total: ${res.total}.`);
+          await cargarCatalogo();
+        }catch(e){ alert('El archivo no es un catálogo válido.'); }
+        finally{ input.value=''; }
+      }
+      async function cargarCatalogo(){
+        etiquetas=(await (await fetch('/api/catalogo')).json()).etiquetas;
+        const usadas=new Set(zonas.map(z=>z.catalogo_id).filter(Boolean));
+        $('#lista-etiquetas').innerHTML=etiquetas.map(e=>`
+          <div class="item" style="border-left:4px solid ${e.color}">
+            <b>${e.nombre}${usadas.has(e.id)?' <span class="badge si">en uso</span>':''}</b>
+            <div class="acciones"><button class="rojo" onclick="borrarEtiqueta('${e.id}')">Borrar</button></div>
+          </div>`).join('')||'<p>Sin etiquetas. Creá la primera arriba.</p>';
+        const sel=$('#z_etiqueta'), previo=sel.value;
+        sel.innerHTML=etiquetas.map(e=>`<option value="${e.id}">${e.nombre}</option>`).join('')||'<option value="">(sin etiquetas)</option>';
+        if(previo&&etiquetas.some(e=>e.id===previo)) sel.value=previo;
+        alSeleccionarEtiqueta();
       }
 
       async function registrarCamara(){
@@ -1634,12 +2016,20 @@ def panel_calibracion() -> str:
         redraw();
       }
       async function cargarZonas(){
-        zonas=(await (await fetch('/api/zonas')).json()).zones;
-        $('#lista-zonas').innerHTML=zonas.map(z=>`
+        const datos=await (await fetch('/api/zonas')).json();
+        zonas=datos.zones;
+        $('#lista-zonas').innerHTML=zonas.map(z=>{
+          const detalle=z.area_m2!=null?`${z.area_m2} m²`:(z.celdas?`${z.celdas.length} celdas`:'polígono (formato viejo)');
+          return `
           <div class="item" style="border-left:4px solid ${z.color}">
             <b>${z.name}</b>
-            <div class="acciones"><button class="rojo" onclick="borrarZona('${z.id}')">Borrar</button></div>
-          </div>`).join('')||'<p>Sin zonas todavía.</p>';
+            <small>${detalle}</small>
+            <div class="acciones">
+              ${z.celdas?`<button onclick="editarZona('${z.id}')">Editar</button>`:''}
+              <button class="rojo" onclick="borrarZona('${z.id}')">Borrar</button>
+            </div>
+          </div>`;
+        }).join('')||'<p>Sin zonas todavía.</p>';
         redraw();
       }
       function aplicarFondoPlano(tieneImagen){
@@ -1661,9 +2051,11 @@ def panel_calibracion() -> str:
         const p=await (await fetch('/api/plano')).json();
         contorno=p.contorno||[];
         escala=p.escala||null;
+        zonaCeldaPx=p.zona_celda_px||20;
+        zonaCeldaMetros=p.zona_celda_metros;
         $('#escala-info').textContent=p.pixeles_por_metro
-          ?`Escala definida: 1 m ≈ ${p.pixeles_por_metro} px · celdas del heatmap de ${p.celda_metros}×${p.celda_metros} m.`
-          :'Sin escala real: el heatmap usa celdas de 20 px. Definila con el paso 2.';
+          ?`Escala definida: 1 m ≈ ${p.pixeles_por_metro} px · heatmap en celdas de ${p.celda_metros}×${p.celda_metros} m · grilla de zonas de ${p.zona_celda_metros}×${p.zona_celda_metros} m.`
+          :'Sin escala real: la grilla de zonas usa celdas de 20 px sin significado físico. Definila con el paso 2.';
         aplicarFondoPlano(p.tiene_imagen);
         redraw();
       }
@@ -1686,7 +2078,9 @@ def panel_calibracion() -> str:
         await cargarPlano();
       }
 
-      cargarPlano(); cargarCamaras(); cargarZonas();
+      // cargarZonas antes que cargarCatalogo: el catálogo marca qué etiquetas
+      // están en uso, y eso lo saca de las zonas ya cargadas.
+      (async()=>{ await cargarPlano(); await cargarCamaras(); await cargarZonas(); await cargarCatalogo(); })();
     </script></body></html>
     """
 
@@ -1747,7 +2141,34 @@ def panel_web() -> str:
       function dibujarPlano(zonas,contorno,camaras){
         const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
         if(contorno.length>=3){x.beginPath();x.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle='#94a3b8';x.lineWidth=3;x.stroke()}
-        zonas.forEach(z=>{if(!z.polygon||z.polygon.length<3)return;x.beginPath();x.moveTo(...z.polygon[0]);z.polygon.slice(1).forEach(p=>x.lineTo(...p));x.closePath();x.strokeStyle=z.color||'#00ff88';x.lineWidth=2;x.stroke();x.fillStyle=(z.color||'#00ff88')+'33';x.fill();x.fillStyle='white';x.fillText(z.name,z.polygon[0][0]+5,z.polygon[0][1]-5)});
+        zonas.forEach(z=>{
+          const color=z.color||'#00ff88';
+          if(z.celdas&&z.celdas.length){
+            // Zona pintada sobre la grilla: se rellenan las celdas y se
+            // recuadra el contorno exterior (los bordes que no lindan con
+            // otra celda de la misma zona), para que se lea como una figura
+            // sola y no como un damero.
+            const lado=z.celda_px||20, ocupadas=new Set(z.celdas.map(([c,f])=>c+','+f));
+            x.fillStyle=color+'44';
+            z.celdas.forEach(([c,f])=>x.fillRect(c*lado,f*lado,lado,lado));
+            x.strokeStyle=color;x.lineWidth=2;x.beginPath();
+            z.celdas.forEach(([c,f])=>{
+              const px=c*lado, py=f*lado;
+              if(!ocupadas.has((c)+','+(f-1))){x.moveTo(px,py);x.lineTo(px+lado,py);}
+              if(!ocupadas.has((c)+','+(f+1))){x.moveTo(px,py+lado);x.lineTo(px+lado,py+lado);}
+              if(!ocupadas.has((c-1)+','+f)){x.moveTo(px,py);x.lineTo(px,py+lado);}
+              if(!ocupadas.has((c+1)+','+f)){x.moveTo(px+lado,py);x.lineTo(px+lado,py+lado);}
+            });
+            x.stroke();
+            const [ec,ef]=z.celdas.reduce((a,b)=>(b[1]<a[1]||(b[1]===a[1]&&b[0]<a[0]))?b:a);
+            x.fillStyle='white';x.font='12px sans-serif';x.fillText(z.name,ec*lado+3,ef*lado+13);
+            return;
+          }
+          if(!z.polygon||z.polygon.length<3)return;
+          x.beginPath();x.moveTo(...z.polygon[0]);z.polygon.slice(1).forEach(p=>x.lineTo(...p));x.closePath();
+          x.strokeStyle=color;x.lineWidth=2;x.stroke();x.fillStyle=color+'33';x.fill();
+          x.fillStyle='white';x.fillText(z.name,z.polygon[0][0]+5,z.polygon[0][1]-5);
+        });
         camaras.forEach(cm=>{if(!cm.posicion)return;const[px,py]=cm.posicion;x.beginPath();x.arc(px,py,10,0,7);x.fillStyle='#38bdf8';x.fill();x.strokeStyle='#0f172a';x.lineWidth=2;x.stroke();x.fillStyle='#0f172a';x.font='bold 11px sans-serif';x.fillText('C',px-3,py+4);x.fillStyle='#7dd3fc';x.font='11px sans-serif';x.fillText(cm.nombre||cm.camara_id,px+14,py+4)});
       }
       async function resetear(){if(confirm('¿Borrar memoria y mapa?')){await fetch('/api/reset',{method:'POST'});actualizar()}} actualizar();setInterval(actualizar,1500);
