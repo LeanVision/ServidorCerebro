@@ -193,6 +193,7 @@ metricas = {
     "processed": 0,
     "rejected_full": 0,
     "failed": 0,
+    "descartados_fuera_local": 0,
     "last_processing_ms": 0.0,
 }
 
@@ -603,6 +604,18 @@ def _punto_en_poligono(px: float, py: float, polygon: list) -> bool:
     return inside
 
 
+def _fuera_del_local(camara_id: str, x: float, y: float) -> bool:
+    """True si un punto YA TRANSFORMADO al plano cae afuera del contorno del
+    local. Sólo tiene sentido comparar si la cámara está calibrada (si no,
+    x,y son píxeles crudos de esa cámara, en otro espacio de coordenadas por
+    completo) y si hay un contorno guardado contra el cual filtrar."""
+    if camara_id not in _homografias_cache:
+        return False
+    if len(contorno_local) < 3:
+        return False
+    return not _punto_en_poligono(x, y, contorno_local)
+
+
 def _zona_en_punto(x: float, y: float) -> str | None:
     """Nombre de la primera zona de negocio que contiene el punto, o None.
 
@@ -750,10 +763,34 @@ def _analizar_demografia_al_cierre(fotos: list[bytes]) -> tuple[str, str]:
     return genero, _rango_edad(edad_mediana)
 
 
-def _procesar_deteccion(job: DetectionJob) -> str:
-    """Trabajo CPU serializado: decodifica, extrae Re-ID y actualiza estado."""
+def _procesar_deteccion(job: DetectionJob) -> str | None:
+    """Trabajo CPU serializado: decodifica, extrae Re-ID y actualiza estado.
+
+    Devuelve None si la detección se descarta por caer afuera del contorno
+    del local (ver _fuera_del_local) — nunca llega a decodificar el JPEG ni a
+    correr Re-ID, lo más caro de esta función, para no gastar CPU de la Pi en
+    datos que de todos modos no se van a contar.
+    """
     global contador_global_ids
     started_at = time.perf_counter()
+    posicion = (job.pos_x, job.pos_y)
+    # posicion (píxeles nativos de la cámara) sigue usándose tal cual en toda
+    # la lógica de Re-ID de abajo (distancias/umbrales tuneados en esa
+    # escala). posicion_plano es sólo para heatmap/zona de negocio y para el
+    # filtro de contorno; nunca se mezclan.
+    # _transformar_a_plano/_fuera_del_local leen _homografias_cache y
+    # contorno_local, que /api/plano/contorno puede reemplazar concurrentemente
+    # desde otro hilo (endpoints síncronos corren en su propio threadpool):
+    # sin el lock, _punto_en_poligono podía indexar un contorno a medio
+    # reemplazar y tirar IndexError.
+    with state_lock:
+        posicion_plano = _transformar_a_plano(job.camara_id, *posicion)
+        descartar = _fuera_del_local(job.camara_id, *posicion_plano)
+        if descartar:
+            metricas["descartados_fuera_local"] += 1
+    if descartar:
+        return None
+
     imagen_cv2 = cv2.imdecode(np.frombuffer(job.image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if imagen_cv2 is None:
         raise ValueError("JPEG inválido recibido desde la cámara.")
@@ -763,16 +800,10 @@ def _procesar_deteccion(job: DetectionJob) -> str:
         huella_nueva = _normalizar_huella(extractor_ia([imagen_rgb])[0])
 
     ahora = time.time()
-    posicion = (job.pos_x, job.pos_y)
     foto_b64 = base64.b64encode(job.image_bytes).decode("utf-8")
     id_local = f"{job.camara_id}_{job.tracker_id}" if job.tracker_id else None
 
     with state_lock:
-        # posicion (píxeles nativos de la cámara) sigue usándose tal cual en
-        # toda la lógica de Re-ID de abajo (distancias/umbrales tuneados en
-        # esa escala). posicion_plano es sólo para heatmap/zona de negocio;
-        # nunca se mezclan.
-        posicion_plano = _transformar_a_plano(job.camara_id, *posicion)
         _registrar_heatmap(*posicion_plano)
         zona_calculada = _zona_en_punto(*posicion_plano) or job.zona
 
@@ -1678,11 +1709,28 @@ def panel_calibracion() -> str:
       // El detail de un 422 de pydantic es una LISTA de errores, no un
       // string: sin esto el alert mostraba "[object Object]".
       const msgError=(d,porDefecto)=>typeof d==='string'?d:(Array.isArray(d)?d.map(e=>e.msg||JSON.stringify(e)).join(' · '):porDefecto);
+      function vista(){
+        // Igual que en el dashboard: agranda y centra el contorno GUARDADO
+        // para que ocupe la mayor parte del lienzo fijo de 640x480 — sólo
+        // dibujado, no toca las coordenadas guardadas. Mientras no hay
+        // contorno todavía (dibujo inicial del local, paso 1) queda 1:1,
+        // que es el espacio en el que ya está probado el ajuste a grilla y
+        // el cierre de paredes en ángulo recto.
+        if(contorno.length<3) return {escala:1,offX:0,offY:0};
+        const xs=contorno.map(p=>p[0]), ys=contorno.map(p=>p[1]);
+        const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+        const margen=30;
+        const ancho=Math.max(1,maxX-minX), alto=Math.max(1,maxY-minY);
+        const escala=Math.min(4,(canvas.width-margen*2)/ancho,(canvas.height-margen*2)/alto);
+        return {escala, offX:(canvas.width-ancho*escala)/2-minX*escala, offY:(canvas.height-alto*escala)/2-minY*escala};
+      }
+
       function celdaDesdeEvento(event){
         const rect=canvas.getBoundingClientRect();
         const x=(event.clientX-rect.left)*(canvas.width/rect.width);
         const y=(event.clientY-rect.top)*(canvas.height/rect.height);
-        return [Math.floor(x/zonaCeldaPx), Math.floor(y/zonaCeldaPx)];
+        const v=vista();
+        return [Math.floor(((x-v.offX)/v.escala)/zonaCeldaPx), Math.floor(((y-v.offY)/v.escala)/zonaCeldaPx)];
       }
 
       function pointFrom(event,el,w,h){
@@ -1692,7 +1740,11 @@ def panel_calibracion() -> str:
           Math.round((event.clientY-rect.top)*(h/rect.height)),
         ];
       }
-      const pointFromEvent=e=>pointFrom(e,canvas,canvas.width,canvas.height);
+      function pointFromEvent(event){
+        const [px,py]=pointFrom(event,canvas,canvas.width,canvas.height);
+        const v=vista();
+        return [Math.round((px-v.offX)/v.escala), Math.round((py-v.offY)/v.escala)];
+      }
 
       function colorCamara(camara_id){
         const idx=camaras.findIndex(c=>c.camara_id===camara_id);
@@ -1778,7 +1830,10 @@ def panel_calibracion() -> str:
       }
 
       function redraw(){
+        ctx.setTransform(1,0,0,1,0,0);
         ctx.clearRect(0,0,canvas.width,canvas.height);
+        const v=vista();
+        ctx.setTransform(v.escala,0,0,v.escala,v.offX,v.offY);
         if(contorno.length>=3){
           ctx.beginPath();ctx.moveTo(...contorno[0]);contorno.slice(1).forEach(p=>ctx.lineTo(...p));ctx.closePath();
           ctx.fillStyle='#1e293b88';ctx.fill();
@@ -2363,9 +2418,27 @@ def panel_web() -> str:
         const a=COLORES_CALOR[tramo],b=COLORES_CALOR[tramo+1];
         return [Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)];
       }
-      function dibujarHeatmap(h){
+      function vista(contorno){
+        // Sin esto, un local chico queda dibujado en una esquina de un
+        // lienzo fijo de 640x480 y las celdas se ven diminutas. Acá se
+        // calcula cuánto agrandar (y centrar) el contorno guardado para que
+        // ocupe la mayor parte del lienzo, sin deformarlo (misma escala en
+        // x e y) ni afectar las coordenadas guardadas — es sólo una
+        // transformación de canvas para dibujar, los datos siguen en el
+        // espacio lógico de 640x480 de siempre.
+        if(!contorno||contorno.length<3) return {escala:1,offX:0,offY:0};
+        const xs=contorno.map(p=>p[0]), ys=contorno.map(p=>p[1]);
+        const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+        const margen=30;
+        const ancho=Math.max(1,maxX-minX), alto=Math.max(1,maxY-minY);
+        const escala=Math.min(4,(640-margen*2)/ancho,(480-margen*2)/alto);
+        return {escala, offX:(640-ancho*escala)/2-minX*escala, offY:(480-alto*escala)/2-minY*escala};
+      }
+      function dibujarHeatmap(h,contorno){
         const c=$('#heatmap'),x=c.getContext('2d');
-        x.clearRect(0,0,c.width,c.height);
+        x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,c.width,c.height);
+        const v=vista(contorno);
+        x.setTransform(v.escala,0,0,v.escala,v.offX,v.offY);
         const max=Math.max(h.max||0,1);
         (h.celdas||[]).forEach(cel=>{
           const t=Math.min(1,cel.value/max);
@@ -2385,9 +2458,12 @@ def panel_web() -> str:
         if(tieneImagen){el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
         else{el.style.backgroundImage='';el.style.backgroundSize='';el.style.backgroundPosition='';}
       }
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h,p.contorno||[]);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
       function dibujarPlano(zonas,contorno,camaras,celdaPx){
-        const c=$('#zones'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+        const c=$('#zones'),x=c.getContext('2d');
+        x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,c.width,c.height);
+        const v=vista(contorno);
+        x.setTransform(v.escala,0,0,v.escala,v.offX,v.offY);
         // Grilla de los cuadrantes del heatmap. Va en el canvas y no en CSS
         // para que quede alineada con las celdas aunque el plano se muestre
         // a menos de 640px de ancho.
