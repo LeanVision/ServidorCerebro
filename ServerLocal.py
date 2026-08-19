@@ -651,6 +651,14 @@ def _area_poligono(polygon: list) -> float:
     return abs(area) / 2.0
 
 
+def _normalizar_camara_id(camara_id: str) -> str:
+    """El hostname real de una Pi puede tener mayúsculas (p.ej. "Raspy-lab-02")
+    distintas de como se registró la cámara en /api/camaras. Normalizar en
+    todos los puntos de entrada evita que el lookup de homografía falle en
+    silencio y caiga al fallback identidad (píxeles crudos de cámara)."""
+    return camara_id.strip().lower()
+
+
 def _transformar_a_plano(camara_id: str, x: float, y: float) -> tuple[float, float]:
     """Convierte coordenadas nativas de una cámara a espacio de plano.
 
@@ -931,6 +939,7 @@ async def identificar_persona(
     contenido = await file.read()
     if not contenido:
         raise HTTPException(status_code=422, detail="La imagen está vacía.")
+    camara_id = _normalizar_camara_id(camara_id)
     trabajo = DetectionJob(contenido, zona, tracker_id, camara_id, branch_id, posicion_x, posicion_y)
     try:
         cola_reid.put_nowait(trabajo)
@@ -1102,17 +1111,18 @@ def listar_camaras() -> dict:
 
 @app.post("/api/camaras")
 def registrar_camara(camara: CamaraIn) -> dict:
+    camara_id = _normalizar_camara_id(camara.camara_id)
     with state_lock:
-        existente = calibraciones_camaras.get(camara.camara_id, {})
+        existente = calibraciones_camaras.get(camara_id, {})
         registro = {
-            "camara_id": camara.camara_id,
+            "camara_id": camara_id,
             "nombre": camara.nombre,
             "video_url": camara.video_url,
             "puntos_plano": existente.get("puntos_plano"),
             "puntos_camara": existente.get("puntos_camara"),
             "posicion": existente.get("posicion"),
         }
-        calibraciones_camaras[camara.camara_id] = registro
+        calibraciones_camaras[camara_id] = registro
         _guardar_plano_config()
     return registro
 
@@ -1121,6 +1131,7 @@ def registrar_camara(camara: CamaraIn) -> dict:
 def posicionar_camara(camara_id: str, datos: PosicionIn) -> dict:
     """Dónde está físicamente la cámara en el plano. Es sólo para mostrarla en
     el mapa: la proyección de lo que ve sale de la homografía, no de acá."""
+    camara_id = _normalizar_camara_id(camara_id)
     if camara_id not in calibraciones_camaras:
         raise HTTPException(status_code=404, detail="Cámara no registrada.")
     if len(datos.posicion) != 2:
@@ -1134,6 +1145,7 @@ def posicionar_camara(camara_id: str, datos: PosicionIn) -> dict:
 
 @app.delete("/api/camaras/{camara_id}")
 def borrar_camara(camara_id: str) -> dict:
+    camara_id = _normalizar_camara_id(camara_id)
     with state_lock:
         calibraciones_camaras.pop(camara_id, None)
         _homografias_cache.pop(camara_id, None)
@@ -1143,6 +1155,7 @@ def borrar_camara(camara_id: str) -> dict:
 
 @app.post("/api/camaras/{camara_id}/calibracion")
 def calibrar_camara(camara_id: str, calibracion: CalibracionIn) -> dict:
+    camara_id = _normalizar_camara_id(camara_id)
     if camara_id not in calibraciones_camaras:
         raise HTTPException(status_code=404, detail="Cámara no registrada. Registrala primero con POST /api/camaras.")
     if len(calibracion.puntos_plano) != 4:
@@ -1165,6 +1178,7 @@ def calibrar_camara(camara_id: str, calibracion: CalibracionIn) -> dict:
 
 @app.delete("/api/camaras/{camara_id}/calibracion")
 def borrar_calibracion(camara_id: str) -> dict:
+    camara_id = _normalizar_camara_id(camara_id)
     if camara_id not in calibraciones_camaras:
         raise HTTPException(status_code=404, detail="Cámara no registrada.")
     with state_lock:
