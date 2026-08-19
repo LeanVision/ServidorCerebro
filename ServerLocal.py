@@ -72,18 +72,16 @@ HEATMAP_HEIGHT = 480
 # cierre. Se reinicia manualmente con /api/reset.
 #
 # La acumulación se hace siempre en celdas base finas y fijas; la vista agrupa
-# esas celdas al tamaño que corresponda (1 m² si hay escala real definida,
-# HEATMAP_CELDA_PX si no). Separar acumulación de presentación permite definir
-# o corregir la escala en cualquier momento sin perder lo ya acumulado.
+# esas celdas al tamaño de _celda_zona_px() (mismo tamaño que la grilla de
+# zonas, ver ZONA_CELDA_METROS más abajo) — antes el heatmap se mostraba en
+# celdas de 1 m² y la de zonas en 0,5 m², dos grillas superpuestas de tamaño
+# distinto que no se leían bien juntas. Separar acumulación de presentación
+# permite definir o corregir la escala en cualquier momento sin perder lo ya
+# acumulado.
 HEATMAP_CELDA_BASE_PX = 10
-HEATMAP_CELDA_PX = 20  # celda visible cuando no hay escala real definida.
-HEATMAP_CELDA_MIN_PX = 10  # nunca menor que la celda base.
-HEATMAP_CELDA_MAX_PX = 160
 
 # Las zonas de negocio se pintan sobre una grilla, no se dibujan vértice por
-# vértice. Media hora de metro cuadrado: entran 4 celdas de zona en cada celda
-# de 1 m² del heatmap, así que las dos grillas quedan alineadas y una zona
-# siempre cubre un número entero de celdas de heatmap.
+# vértice. El heatmap se muestra con esta misma grilla (ver _celda_zona_px).
 ZONA_CELDA_METROS = 0.5
 ZONA_CELDA_PX_SIN_ESCALA = 20  # fallback mientras no se definió la escala real.
 ZONA_CELDA_MIN_PX = 8
@@ -172,7 +170,8 @@ zonas_negocio: list[dict] = []
 contorno_local: list[list[float]] = []
 # Escala real del plano: {"puntos": [[x1,y1],[x2,y2]], "metros": float} — dos
 # puntos de referencia del plano y la distancia real entre ellos. None = sin
-# definir (el heatmap cae a celdas de HEATMAP_CELDA_PX, como siempre).
+# definir (el heatmap cae a la celda sin escala de _celda_zona_px, como
+# siempre).
 escala_plano: dict | None = None
 # Catálogo de etiquetas de zona: [{"id","nombre","color"}]. Define UNA vez los
 # tipos de zona del negocio ("Ropa de mujer", "Caja", "Probadores") y cada
@@ -408,16 +407,6 @@ def _pixeles_por_metro() -> float | None:
     return distancia_px / metros
 
 
-def _celda_heatmap_px() -> int:
-    """Lado de la celda visible del heatmap: 1 metro real si hay escala,
-    HEATMAP_CELDA_PX si no. Acotado para que un plano con escala extrema no
-    genere celdas más finas que la grilla base ni cuadrados absurdos."""
-    ppm = _pixeles_por_metro()
-    if ppm is None:
-        return HEATMAP_CELDA_PX
-    return max(HEATMAP_CELDA_MIN_PX, min(HEATMAP_CELDA_MAX_PX, round(ppm)))
-
-
 def _celda_zona_px() -> float:
     """Lado en píxeles de la celda de zona (ZONA_CELDA_METROS reales).
 
@@ -505,10 +494,11 @@ def _registrar_heatmap(pos_x: float, pos_y: float) -> None:
     celda["valor"] += 1.0
 
 
-def _snapshot_heatmap() -> tuple[list[dict], float, int]:
-    """Agrupa las celdas base en celdas visibles (1 m² si hay escala real) y
-    devuelve (celdas con su esquina superior izquierda, máximo, lado en px)."""
-    celda_px = _celda_heatmap_px()
+def _snapshot_heatmap() -> tuple[list[dict], float, float]:
+    """Agrupa las celdas base en celdas visibles (mismo tamaño que la grilla
+    de zonas, ver _celda_zona_px) y devuelve (celdas con su esquina superior
+    izquierda, máximo, lado en px)."""
+    celda_px = _celda_zona_px()
     agregado: dict[tuple[int, int], float] = {}
     for (col, fila), celda in heatmap_celdas.items():
         centro_x = col * HEATMAP_CELDA_BASE_PX + HEATMAP_CELDA_BASE_PX / 2
@@ -1094,10 +1084,11 @@ def obtener_heatmap() -> dict:
     return {
         "width": HEATMAP_WIDTH,
         "height": HEATMAP_HEIGHT,
-        "celda_px": celda_px,
+        "celda_px": round(celda_px, 3),
         # Cuántos metros reales representa el lado de cada celda (None sin
-        # escala). Con escala es ~1.0 salvo que el clamp de tamaño actúe.
-        "celda_metros": round(celda_px / ppm, 2) if ppm else None,
+        # escala). Con escala es ~ZONA_CELDA_METROS salvo que el clamp de
+        # tamaño actúe.
+        "celda_metros": round(celda_px / ppm, 3) if ppm else None,
         "celdas": celdas,
         "max": round(maximo, 3),
     }
@@ -1224,7 +1215,13 @@ def borrar_calibracion(camara_id: str) -> dict:
 def obtener_plano() -> dict:
     with state_lock:
         ppm = _pixeles_por_metro()
-        celda_px = _celda_heatmap_px()
+        # Heatmap y zonas usan la MISMA grilla (ver _celda_zona_px): antes el
+        # heatmap se agrupaba en celdas de 1 m² y las zonas en 0,5 m², dos
+        # tamaños de cuadrante superpuestos que no se leían bien juntos.
+        # "celda_px"/"celda_metros" y "zona_celda_px"/"zona_celda_metros"
+        # quedan iguales a propósito: se mantienen los dos nombres de campo
+        # para no romper a quien ya consuma cualquiera de los dos.
+        celda_px = _celda_zona_px()
         return {
             "width": HEATMAP_WIDTH,
             "height": HEATMAP_HEIGHT,
@@ -1232,15 +1229,10 @@ def obtener_plano() -> dict:
             "tiene_imagen": os.path.exists(PLANO_IMAGEN_PATH),
             "escala": escala_plano,
             "pixeles_por_metro": round(ppm, 2) if ppm else None,
-            "celda_px": celda_px,
-            "celda_metros": round(celda_px / ppm, 2) if ppm else None,
-            # Grilla de zonas (más fina que la del heatmap, ver ZONA_CELDA_METROS).
-            # Se deriva del px real y no se devuelve la constante: cuando el
-            # clamp de _celda_zona_px() actúa, la celda deja de medir
-            # ZONA_CELDA_METROS y la UI mostraría un área que no es la que
-            # calcula el servidor.
-            "zona_celda_px": round(_celda_zona_px(), 3),
-            "zona_celda_metros": round(_celda_zona_px() / ppm, 3) if ppm else None,
+            "celda_px": round(celda_px, 3),
+            "celda_metros": round(celda_px / ppm, 3) if ppm else None,
+            "zona_celda_px": round(celda_px, 3),
+            "zona_celda_metros": round(celda_px / ppm, 3) if ppm else None,
         }
 
 
@@ -1284,12 +1276,12 @@ def guardar_escala(escala: EscalaIn) -> dict:
     with state_lock:
         escala_plano = candidata
         ppm = _pixeles_por_metro()
-        celda_px = _celda_heatmap_px()
+        celda_px = _celda_zona_px()
         _guardar_plano_config()
     return {
         "ok": True,
         "pixeles_por_metro": round(ppm, 2) if ppm else None,
-        "celda_px": celda_px,
+        "celda_px": round(celda_px, 3),
     }
 
 
