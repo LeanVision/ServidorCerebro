@@ -86,6 +86,17 @@ ZONA_CELDA_METROS = 0.5
 ZONA_CELDA_PX_SIN_ESCALA = 20  # fallback mientras no se definió la escala real.
 ZONA_CELDA_MIN_PX = 8
 ZONA_CELDA_MAX_PX = 120
+
+# Margen de tolerancia contra el contorno del local: una calibración de 4
+# puntos es exacta cerca de esos 4 puntos y pierde precisión (~1 m típico,
+# hasta 4-5 m en los bordes del cuadro, medido en producción el 2026-08-20)
+# cuanto más lejos cae la detección de ellos. Como el punto más lejano de la
+# calibración suele quedar pegado a la pared real (no hay piso más allá para
+# marcar), ese margen de error entero cae del lado de "afuera" y descarta
+# gente que en la realidad está adentro. Esta tolerancia absorbe ese margen
+# sin mover el contorno ni recalibrar.
+TOLERANCIA_FUERA_DEL_LOCAL_METROS = 1.5
+TOLERANCIA_FUERA_DEL_LOCAL_PX_SIN_ESCALA = 60  # fallback mientras no se definió la escala real.
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
@@ -594,16 +605,44 @@ def _punto_en_poligono(px: float, py: float, polygon: list) -> bool:
     return inside
 
 
+def _distancia_punto_segmento(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0 and dy == 0:
+        return math.hypot(px - x1, py - y1)
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+
+
+def _distancia_a_poligono(px: float, py: float, polygon: list) -> float:
+    """Distancia (en píxeles del plano) del punto al borde más cercano del
+    polígono. No distingue adentro/afuera, sólo qué tan lejos está del borde."""
+    n = len(polygon)
+    return min(
+        _distancia_punto_segmento(px, py, polygon[i][0], polygon[i][1], polygon[(i + 1) % n][0], polygon[(i + 1) % n][1])
+        for i in range(n)
+    )
+
+
+def _tolerancia_fuera_del_local_px() -> float:
+    ppm = _pixeles_por_metro()
+    if ppm is None:
+        return TOLERANCIA_FUERA_DEL_LOCAL_PX_SIN_ESCALA
+    return TOLERANCIA_FUERA_DEL_LOCAL_METROS * ppm
+
+
 def _fuera_del_local(camara_id: str, x: float, y: float) -> bool:
     """True si un punto YA TRANSFORMADO al plano cae afuera del contorno del
-    local. Sólo tiene sentido comparar si la cámara está calibrada (si no,
+    local, más allá del margen de tolerancia (ver TOLERANCIA_FUERA_DEL_LOCAL_
+    METROS). Sólo tiene sentido comparar si la cámara está calibrada (si no,
     x,y son píxeles crudos de esa cámara, en otro espacio de coordenadas por
     completo) y si hay un contorno guardado contra el cual filtrar."""
     if camara_id not in _homografias_cache:
         return False
     if len(contorno_local) < 3:
         return False
-    return not _punto_en_poligono(x, y, contorno_local)
+    if _punto_en_poligono(x, y, contorno_local):
+        return False
+    return _distancia_a_poligono(x, y, contorno_local) > _tolerancia_fuera_del_local_px()
 
 
 def _zona_en_punto(x: float, y: float) -> str | None:
