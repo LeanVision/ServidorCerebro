@@ -1102,6 +1102,14 @@ def obtener_clientes() -> dict:
             clientes.append({
                 "id": persona_id,
                 "zona": datos.get("zona_actual", "Desconocida"),
+                # Qué cámara lo vio por última vez. El dato ya se venía
+                # guardando en clientes_globales pero no se exponía, y sin él
+                # no hay forma de observar el Re-ID cross-cámara: cuando dos
+                # cámaras cubren zonas superpuestas (el caso real: una en cada
+                # punta del local, mirándose de frente), "zona" no alcanza
+                # para saber quién está viendo a quién.
+                "camara_id": datos.get("camara_id", ""),
+                "apariciones": datos.get("apariciones", 1),
                 "similitud": f"{datos.get('similitud', 0.0) * 100:.1f}%",
                 "ultima_vista": datos.get("hora_legible", "--:--:--"),
                 # El género/edad se calculan recién al cerrar la sesión (así
