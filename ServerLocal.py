@@ -145,6 +145,34 @@ TOLERANCIA_POSTURA_X_PX = 100.0
 TOLERANCIA_POSTURA_Y_PX = 180.0
 UMBRAL_SIMILITUD_CONTINUIDAD = 0.20
 
+# --- Fusión espacial entre cámaras -----------------------------------------
+# Dos personas no pueden ocupar el mismo metro cuadrado del piso al mismo
+# tiempo. Si dos cámaras detectan a alguien en el mismo punto del plano en el
+# mismo instante, es la misma persona — sin importar que una la vea de frente
+# y la otra de espalda, que es justo el caso donde OSNet falla (el frente y la
+# espalda de una persona se parecen menos entre sí que dos personas distintas
+# vestidas parecido, y por eso se creaban identidades duplicadas).
+#
+# El servidor ya venía calculando posicion_plano de cada detección, pero sólo
+# la usaba para heatmap/zona/contorno: el Re-ID comparaba píxeles nativos de
+# cámara, que entre encuadres distintos no significan nada.
+#
+# Esto sólo es viable desde que se recalibraron las cámaras el 2026-08-24: el
+# error de posición bajó de 1.67 m / 2.58 m a 0.57 m / 0.94 m. Con los valores
+# viejos, dos personas sentadas cerca se habrían fusionado.
+#
+# La posición NO reemplaza al parecido visual, lo complementa: se exige que
+# coincidan las dos cosas. La posición aporta la certeza que a la huella le
+# falta cuando el ángulo es malo; la huella evita que un error de proyección
+# fusione a dos personas distintas.
+DISTANCIA_FUSION_PLANO_METROS = 1.0
+TIEMPO_FUSION_PLANO_SEGUNDOS = 1.5
+# Piso de parecido visual exigido cuando la posición ya coincide. Bastante más
+# bajo que UMBRAL_SIMILITUD_CROSS_CAMARA (0.55) porque la coincidencia
+# espacial ya es evidencia fuerte, pero no cero: descarta el caso de dos
+# personas realmente distintas que la proyección ubica en el mismo lugar.
+UMBRAL_SIMILITUD_CON_POSICION = 0.35
+
 # Estabilidad de IDs (menos parpadeo): un cliente recién creado es "provisional"
 # hasta acumular varias apariciones; así un recorte espurio no genera una tarjeta
 # fantasma. La similitud mostrada se suaviza con una media móvil exponencial.
@@ -382,6 +410,29 @@ def _ids_bloqueados_en_misma_camara(
         if _distancia(info.get("posicion"), posicion) > DISTANCIA_REID_LOCAL_PX:
             bloqueados.add(info["id_global"])
     return bloqueados
+
+
+def _coincide_en_el_piso(datos: dict, posicion_plano: tuple[float, float], ahora: float) -> bool:
+    """True si una identidad ya conocida estaba en el mismo punto del piso, en
+    el mismo instante, que la detección nueva.
+
+    Sólo tiene sentido comparar posiciones de plano si AMBAS existen: una
+    cámara sin calibrar devuelve píxeles crudos desde _transformar_a_plano, que
+    no son comparables con los de otra cámara. Y sin escala definida no hay
+    forma de convertir la distancia a metros, así que no se arriesga la fusión.
+    """
+    ppm = _pixeles_por_metro()
+    if ppm is None:
+        return False
+    if datos.get("camara_id") not in _homografias_cache:
+        return False
+    anterior = datos.get("posicion_plano")
+    if anterior is None:
+        return False
+    if ahora - datos.get("timestamp", 0.0) > TIEMPO_FUSION_PLANO_SEGUNDOS:
+        return False
+    distancia_px = math.hypot(posicion_plano[0] - anterior[0], posicion_plano[1] - anterior[1])
+    return (distancia_px / ppm) <= DISTANCIA_FUSION_PLANO_METROS
 
 
 def _escala_valida(escala) -> bool:
@@ -852,6 +903,10 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
                     "hora_legible": time.strftime("%H:%M:%S"),
                     "camara_id": job.camara_id,
                     "posicion": posicion,
+                    # También acá: es la ruta rápida y la más transitada, así
+                    # que sin esto posicion_plano quedaría vieja y la fusión
+                    # espacial compararía contra un punto de hace rato.
+                    "posicion_plano": posicion_plano,
                 })
                 traductor_camaras[id_local].update(ultimo_update=ahora, posicion=posicion)
                 _guardar_foto_para_demografia(datos, ahora, job.image_bytes)
@@ -862,6 +917,7 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
         mejor_id_global: str | None = None
         mejor_puntaje = -1.0
         mejor_misma_camara = False
+        mejor_coincide_piso = False
         candidatos_continuidad: list[tuple[str, float]] = []
 
         for persona_id, datos in clientes_globales.items():
@@ -893,8 +949,13 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
             )
             if continuidad_postura:
                 candidatos_continuidad.append((persona_id, puntaje))
+            # La coincidencia espacial sólo aporta información entre cámaras
+            # distintas: dentro de la misma, la comparación de píxeles nativos
+            # (el bonus de arriba) ya cubre ese caso y está mejor tuneada.
+            coincide_piso = not misma_camara and _coincide_en_el_piso(datos, posicion_plano, ahora)
             if puntaje > mejor_puntaje:
                 mejor_puntaje, mejor_id_global, mejor_misma_camara = puntaje, persona_id, misma_camara
+                mejor_coincide_piso = coincide_piso
 
         continuidad_unica = len(candidatos_continuidad) == 1
         puede_recuperar_por_continuidad = (
@@ -902,6 +963,12 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
             and candidatos_continuidad[0][1] >= UMBRAL_SIMILITUD_CONTINUIDAD
         )
         umbral_aplicable = UMBRAL_SIMILITUD if mejor_misma_camara else UMBRAL_SIMILITUD_CROSS_CAMARA
+        # Si las dos cámaras ubicaron a alguien en el mismo punto del piso en
+        # el mismo instante, es la misma persona (ver DISTANCIA_FUSION_PLANO_
+        # METROS): se relaja el umbral visual, que es el que falla cuando una
+        # cámara la ve de frente y la otra de espalda.
+        if mejor_coincide_piso:
+            umbral_aplicable = min(umbral_aplicable, UMBRAL_SIMILITUD_CON_POSICION)
         if mejor_id_global is not None and (
             mejor_puntaje >= umbral_aplicable or puede_recuperar_por_continuidad
         ):
@@ -909,6 +976,13 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
                 id_global, similitud_asignada = candidatos_continuidad[0]
             else:
                 id_global, similitud_asignada = mejor_id_global, mejor_puntaje
+                # Se loguea sólo la fusión que NO habría ocurrido sin la
+                # posición, para poder auditar si está juntando gente distinta.
+                if mejor_coincide_piso and mejor_puntaje < UMBRAL_SIMILITUD_CROSS_CAMARA:
+                    logger.info(
+                        "REID-FUSION-PLANO %s | puntaje=%.3f (bajo el umbral cross-camara %.2f) | cam=%s",
+                        id_global, mejor_puntaje, UMBRAL_SIMILITUD_CROSS_CAMARA, job.camara_id,
+                    )
             datos = clientes_globales[id_global]
             _agregar_huella_confiable(datos, huella_nueva, ahora)
             datos["apariciones"] = datos.get("apariciones", 1) + 1
@@ -971,6 +1045,10 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
             "branch_id": job.branch_id,
             "camara_id": job.camara_id,
             "posicion": posicion,
+            # Coordenadas reales en el piso, para la fusión espacial entre
+            # cámaras (ver _coincide_en_el_piso). "posicion" son píxeles
+            # nativos de la cámara y no sirve para comparar entre encuadres.
+            "posicion_plano": posicion_plano,
         })
         _guardar_foto_para_demografia(datos, ahora, job.image_bytes)
         _actualizar_metricas_procesado(started_at)
