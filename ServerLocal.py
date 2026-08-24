@@ -915,6 +915,25 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
         else:
             id_global = f"Cliente_Global_{contador_global_ids}"
             contador_global_ids += 1
+            # Diagnóstico de los umbrales de Re-ID. UMBRAL_SIMILITUD_CROSS_CAMARA
+            # se fijó "a ojo" (ver su comentario) porque nunca se pudo validar
+            # con dos cámaras reales en paralelo. Registrar por qué se creó cada
+            # identidad nueva permite elegir el umbral con datos en vez de
+            # adivinar: si los duplicados aparecen con puntajes apenas por
+            # debajo del umbral, hay que bajarlo; si aparecen muy por debajo,
+            # el problema no es el umbral sino las huellas.
+            if mejor_id_global is not None:
+                logger.info(
+                    "REID-NUEVO %s | mejor candidato %s puntaje=%.3f | %s | umbral=%.2f | falto=%.3f | cam=%s",
+                    id_global, mejor_id_global, mejor_puntaje,
+                    "misma-camara" if mejor_misma_camara else "cross-camara",
+                    umbral_aplicable, umbral_aplicable - mejor_puntaje, job.camara_id,
+                )
+            else:
+                logger.info(
+                    "REID-NUEVO %s | sin candidatos para comparar | cam=%s",
+                    id_global, job.camara_id,
+                )
             datos = {
                 "historial": [huella_nueva],
                 "centroide": huella_nueva.clone(),
