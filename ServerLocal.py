@@ -131,8 +131,20 @@ UMBRAL_SIMILITUD = 0.36
 # distintos): la similitud visual queda como único filtro. Luz y ángulo
 # varían más entre cámaras que dentro de una sola, así que exigimos más
 # certeza antes de fusionar dos identidades de cámaras distintas.
-# Punto de partida razonado, no validado aún con cámaras reales en paralelo.
-UMBRAL_SIMILITUD_CROSS_CAMARA = 0.55
+# Bajado de 0.55 a 0.48 el 2026-08-24. El 0.55 original era un punto de
+# partida razonado sin validar; con las dos cámaras estables por primera vez
+# se vio que parte identidades: la misma persona vista de frente por una
+# cámara y de espalda por la otra generaba dos Cliente_Global.
+#
+# Paso medido, no salto: este umbral ya no actúa solo, porque la fusión
+# espacial lo baja a UMBRAL_SIMILITUD_CON_POSICION (0.35) cuando las dos
+# cámaras ubican a la persona en el mismo punto del piso. Bajar mucho el base
+# se suma a eso y arriesga el problema opuesto — dos personas distintas
+# compartiendo un ID — que ya se observó en paralelo con los duplicados.
+# Ambos síntomas juntos indican que las huellas de OSNet no separan del todo
+# y que el umbral no es una palanca perfecta: conviene moverlo de a poco y
+# mirar el log REID-NUEVO antes de seguir bajando.
+UMBRAL_SIMILITUD_CROSS_CAMARA = 0.48
 UMBRAL_ACTUALIZACION_ALBUM = 0.52
 MAX_FOTOS_ALBUM = 8
 INTERVALO_ACTUALIZACION_ALBUM = 1.0
