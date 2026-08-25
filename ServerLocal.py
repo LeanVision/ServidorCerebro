@@ -587,6 +587,11 @@ def _reindexar_celdas_zonas() -> None:
 
 def _registrar_heatmap(pos_x: float, pos_y: float) -> None:
     """Acumula presencia en la celda base de la grilla, sin decaimiento."""
+    # Corrige hacia adentro antes de acumular: la tolerancia del filtro de
+    # contorno acepta detecciones hasta 1,5 m afuera (para no perder gente que
+    # camina pegada a las paredes), pero dibujarlas ahí manchaba el heatmap
+    # fuera del local.
+    pos_x, pos_y = _traer_adentro_del_local(pos_x, pos_y)
     if not (0 <= pos_x < HEATMAP_WIDTH and 0 <= pos_y < HEATMAP_HEIGHT):
         return
     celda_id = (int(pos_x // HEATMAP_CELDA_BASE_PX), int(pos_y // HEATMAP_CELDA_BASE_PX))
@@ -605,9 +610,17 @@ def _snapshot_heatmap() -> tuple[list[dict], float, float]:
         centro_y = fila * HEATMAP_CELDA_BASE_PX + HEATMAP_CELDA_BASE_PX / 2
         clave = (int(centro_x // celda_px), int(centro_y // celda_px))
         agregado[clave] = agregado.get(clave, 0.0) + celda["valor"]
+    # Se descarta al dibujar toda celda cuyo centro caiga fuera del contorno.
+    # La corrección de _registrar_heatmap ya evita generarlas, pero esto limpia
+    # lo acumulado antes del arreglo y cubre el caso de que se redibuje el
+    # contorno más chico después de haber acumulado datos — sin obligar a un
+    # reset que borraría también las identidades.
+    hay_contorno = len(contorno_local) >= 3
     celdas = [
         {"x": col * celda_px, "y": fila * celda_px, "value": round(valor, 3)}
         for (col, fila), valor in agregado.items()
+        if not hay_contorno
+        or _punto_en_poligono((col + 0.5) * celda_px, (fila + 0.5) * celda_px, contorno_local)
     ]
     maximo = max((c["value"] for c in celdas), default=0.0)
     return celdas, maximo, celda_px
@@ -710,6 +723,53 @@ def _distancia_a_poligono(px: float, py: float, polygon: list) -> float:
         _distancia_punto_segmento(px, py, polygon[i][0], polygon[i][1], polygon[(i + 1) % n][0], polygon[(i + 1) % n][1])
         for i in range(n)
     )
+
+
+def _punto_mas_cercano_en_segmento(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> tuple[float, float]:
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0 and dy == 0:
+        return x1, y1
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+    return x1 + t * dx, y1 + t * dy
+
+
+def _traer_adentro_del_local(px: float, py: float) -> tuple[float, float]:
+    """Devuelve el punto tal cual si cae dentro del contorno; si cae afuera, lo
+    corrige al punto válido más cercano.
+
+    Un punto afuera es error de medición, no una persona atravesando una pared:
+    si llegó hasta acá es porque pasó el filtro de tolerancia
+    (TOLERANCIA_FUERA_DEL_LOCAL_METROS), o sea que ya decidimos que está adentro
+    cerca de un borde. Dibujarlo afuera ensuciaba el heatmap con manchas fuera
+    del local, que era justamente el síntoma reportado.
+
+    El punto corregido se empuja un poco hacia adentro desde el borde para que
+    la celda de la grilla que lo contiene quede claramente dentro y no a caballo
+    del contorno.
+    """
+    if len(contorno_local) < 3 or _punto_en_poligono(px, py, contorno_local):
+        return px, py
+
+    n = len(contorno_local)
+    mejor = (px, py)
+    mejor_dist = float("inf")
+    for i in range(n):
+        x1, y1 = contorno_local[i]
+        x2, y2 = contorno_local[(i + 1) % n]
+        cx, cy = _punto_mas_cercano_en_segmento(px, py, x1, y1, x2, y2)
+        dist = math.hypot(px - cx, py - cy)
+        if dist < mejor_dist:
+            mejor_dist, mejor = dist, (cx, cy)
+
+    # Empujón hacia el centro del contorno para despegarlo del borde.
+    centro_x = sum(p[0] for p in contorno_local) / n
+    centro_y = sum(p[1] for p in contorno_local) / n
+    hacia_x, hacia_y = centro_x - mejor[0], centro_y - mejor[1]
+    largo = math.hypot(hacia_x, hacia_y)
+    if largo == 0:
+        return mejor
+    empuje = min(HEATMAP_CELDA_BASE_PX, largo)
+    return mejor[0] + hacia_x / largo * empuje, mejor[1] + hacia_y / largo * empuje
 
 
 def _tolerancia_fuera_del_local_px() -> float:
