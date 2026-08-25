@@ -1182,13 +1182,68 @@ async def iniciar_servicios() -> None:
     asyncio.create_task(reloj_limpiador_background())
 
 
+def _metricas_sistema() -> dict:
+    """RAM, swap, temperatura y carga de la máquina que corre el Cerebro.
+
+    Se lee de /proc y /sys en vez de invocar `free` o `vcgencmd`: no cuesta
+    lanzar un proceso por request. Nunca propaga excepciones — es diagnóstico
+    y no debe poder romper /health si cambia el formato de algún archivo del
+    kernel o si se corre fuera de Linux.
+
+    Existe sobre todo para dimensionar el hardware: hoy el Cerebro corre en
+    una Pi 5, y hay que decidir si una Pi 4 (más barata, para el plan
+    on-premise) aguanta OSNet. Sin estos números esa decisión sería a ojo.
+    """
+    datos: dict = {}
+    try:
+        memoria: dict[str, int] = {}
+        with open("/proc/meminfo", "r", encoding="utf-8") as archivo:
+            for linea in archivo:
+                clave, _, resto = linea.partition(":")
+                if clave in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                    memoria[clave] = int(resto.split()[0])  # kB
+        if "MemTotal" in memoria:
+            datos["ram_total_mb"] = round(memoria["MemTotal"] / 1024)
+        if "MemAvailable" in memoria:
+            datos["ram_disponible_mb"] = round(memoria["MemAvailable"] / 1024)
+        if "SwapTotal" in memoria and "SwapFree" in memoria:
+            datos["swap_usada_mb"] = round((memoria["SwapTotal"] - memoria["SwapFree"]) / 1024)
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r", encoding="utf-8") as archivo:
+            datos["soc_temp_c"] = round(int(archivo.read().strip()) / 1000.0, 1)
+    except (OSError, ValueError):
+        pass
+    try:
+        with open("/proc/loadavg", "r", encoding="utf-8") as archivo:
+            partes = archivo.read().split()
+        datos["carga_1min"] = float(partes[0])
+        datos["carga_5min"] = float(partes[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        # RSS del propio proceso: cuánto ocupa realmente OSNet + PyTorch, que
+        # es el dato que decide si entra en una Pi 4 de 2 GB o hace falta la
+        # de 4 GB.
+        with open("/proc/self/statm", "r", encoding="utf-8") as archivo:
+            paginas_rss = int(archivo.read().split()[1])
+        datos["proceso_rss_mb"] = round(paginas_rss * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024))
+    except (OSError, ValueError, IndexError, AttributeError):
+        pass
+    return datos
+
+
 @app.get("/health")
 def health() -> dict:
+    sistema = _metricas_sistema()
     with state_lock:
         return {
             **metricas,
+            **sistema,
             "queue_size": cola_reid.qsize() if cola_reid else None,
             "queue_capacity": REID_QUEUE_SIZE,
+            "reid_workers": REID_WORKERS,
             "active_global_ids": len(clientes_globales),
             "heatmap_size": {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT},
             # Cambia en cada arranque. El dashboard lo usa para recargarse solo
