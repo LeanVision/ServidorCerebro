@@ -149,7 +149,28 @@ UMBRAL_ACTUALIZACION_ALBUM = 0.52
 MAX_FOTOS_ALBUM = 8
 INTERVALO_ACTUALIZACION_ALBUM = 1.0
 TIEMPO_TELETRANSPORTACION = 3.0
+# Cierra la SESIÓN: a los 60s sin ver a alguien, se da por terminada su visita
+# y se manda el tiempo de permanencia a Supabase. Esto NO borra su identidad.
 TIEMPO_INACTIVIDAD_SEGUNDOS = 60.0
+# Cuánto se recuerda a alguien DESPUÉS de que su sesión cerró.
+#
+# Antes vencer la sesión también borraba la identidad, y eso rompía el conteo
+# de visitantes únicos: alguien que salía del cuadro y volvía 2 minutos después
+# era una persona nueva. Peor todavía en combinación con las fallas de
+# detección (a una persona sentada el detector la pierde por minutos), lo que
+# generaba decenas de identidades para un puñado de personas — medido el
+# 2026-08-25: 86 Cliente_Global en una sola sesión del servidor, y el log
+# REID-NUEVO mostrando "sin candidatos para comparar" en el 100% de los casos,
+# porque la lista se vaciaba entre una persona y la siguiente.
+#
+# Ahora al cerrar la sesión la identidad pasa a `identidades_recientes`, que
+# conserva sólo lo necesario para reconocerla (álbum de huellas y centroide),
+# no las fotos ni los contadores de la visita. Si vuelve, recupera su mismo
+# Cliente_Global y abre una sesión nueva.
+#
+# El valor es un compromiso: más tiempo recuerda mejor, pero deja más
+# candidatos vivos y con eso más chances de fusionar a dos personas distintas.
+TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS = 900.0
 TIEMPO_TRACKER_ACTIVO = 3.0
 DISTANCIA_REID_LOCAL_PX = 110.0
 TIEMPO_CONTINUIDAD_POSTURA = 30.0
@@ -210,6 +231,11 @@ app = FastAPI(title="LeanVision Cerebro (CerebroLocal)", version="2.0.0")
 INSTANCIA_ID = str(int(time.time()))
 state_lock = threading.RLock()
 clientes_globales: dict[str, dict] = {}
+# Identidades cuya sesión ya cerró pero que todavía se recuerdan por si la
+# persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS). Guarda sólo lo que
+# hace falta para reconocerla — álbum, centroide y branch — no las fotos ni
+# los contadores de la visita, que ya se cerraron y se mandaron a Supabase.
+identidades_recientes: dict[str, dict] = {}
 traductor_camaras: dict[str, dict] = {}
 # Grilla del heatmap: (col, fila) -> {"valor": float, "ultimo": timestamp}.
 heatmap_celdas: dict[tuple[int, int], dict] = {}
@@ -969,6 +995,24 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
                 mejor_puntaje, mejor_id_global, mejor_misma_camara = puntaje, persona_id, misma_camara
                 mejor_coincide_piso = coincide_piso
 
+        # Identidades cuya sesión cerró pero que todavía recordamos: alguien que
+        # salió del cuadro y vuelve. Sin esto era una persona nueva, que es lo
+        # que inflaba el conteo de visitantes únicos.
+        #
+        # Se les exige el umbral cross-cámara aunque vuelvan por la misma: pasó
+        # tiempo indeterminado y no hay ninguna guarda de posición ni de zona
+        # que ayude a descartar un falso positivo, igual que entre cámaras
+        # distintas. Y no participan del bonus de posición ni de la continuidad
+        # de postura, que sólo tienen sentido con una sesión viva.
+        mejor_recordada: str | None = None
+        mejor_puntaje_recordada = -1.0
+        for persona_id, datos in identidades_recientes.items():
+            if datos.get("branch_id") != job.branch_id:
+                continue
+            puntaje = _puntaje_identidad(huella_nueva, datos)
+            if puntaje > mejor_puntaje_recordada:
+                mejor_puntaje_recordada, mejor_recordada = puntaje, persona_id
+
         continuidad_unica = len(candidatos_continuidad) == 1
         puede_recuperar_por_continuidad = (
             continuidad_unica
@@ -998,6 +1042,33 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
             datos = clientes_globales[id_global]
             _agregar_huella_confiable(datos, huella_nueva, ahora)
             datos["apariciones"] = datos.get("apariciones", 1) + 1
+        elif mejor_recordada is not None and mejor_puntaje_recordada >= UMBRAL_SIMILITUD_CROSS_CAMARA:
+            # Volvió alguien que ya conocíamos: se recupera su Cliente_Global y
+            # se le abre una sesión nueva. El álbum de huellas se conserva (por
+            # eso sigue siendo la misma persona a ojos del Re-ID), pero los
+            # contadores de la visita arrancan de cero: la anterior ya se cerró
+            # y se mandó a Supabase.
+            id_global = mejor_recordada
+            similitud_asignada = mejor_puntaje_recordada
+            archivada = identidades_recientes.pop(id_global)
+            logger.info(
+                "REID-REGRESO %s | puntaje=%.3f | estuvo ausente %.0fs | cam=%s",
+                id_global, mejor_puntaje_recordada, ahora - archivada.get("archivada_en", ahora), job.camara_id,
+            )
+            datos = {
+                "historial": archivada["historial"],
+                "centroide": archivada["centroide"],
+                "ultimo_update_album": ahora,
+                "hora_entrada": ahora,
+                "zona_entrada": zona_calculada,
+                "branch_id": job.branch_id,
+                "apariciones": 1,
+                "similitud_ema": mejor_puntaje_recordada,
+                "fotos_demografia": [],
+                "ultimo_guardado_demo": 0.0,
+            }
+            clientes_globales[id_global] = datos
+            _agregar_huella_confiable(datos, huella_nueva, ahora)
         else:
             id_global = f"Cliente_Global_{contador_global_ids}"
             contador_global_ids += 1
@@ -1008,18 +1079,31 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
             # adivinar: si los duplicados aparecen con puntajes apenas por
             # debajo del umbral, hay que bajarlo; si aparecen muy por debajo,
             # el problema no es el umbral sino las huellas.
+            # Se informan las dos búsquedas por separado: contra sesiones vivas
+            # y contra identidades archivadas. Antes el log decía "sin
+            # candidatos" sin distinguir, y eso ocultaba el problema real — el
+            # 2026-08-25 el 100% de las líneas decía eso porque las identidades
+            # se borraban a los 60s y no quedaba nada contra qué comparar.
             if mejor_id_global is not None:
-                logger.info(
-                    "REID-NUEVO %s | mejor candidato %s puntaje=%.3f | %s | umbral=%.2f | falto=%.3f | cam=%s",
-                    id_global, mejor_id_global, mejor_puntaje,
-                    "misma-camara" if mejor_misma_camara else "cross-camara",
-                    umbral_aplicable, umbral_aplicable - mejor_puntaje, job.camara_id,
+                detalle_activas = (
+                    f"activa {mejor_id_global} puntaje={mejor_puntaje:.3f} "
+                    f"({'misma-camara' if mejor_misma_camara else 'cross-camara'}) "
+                    f"umbral={umbral_aplicable:.2f} falto={umbral_aplicable - mejor_puntaje:.3f}"
                 )
             else:
-                logger.info(
-                    "REID-NUEVO %s | sin candidatos para comparar | cam=%s",
-                    id_global, job.camara_id,
+                detalle_activas = f"sin sesiones activas ({len(clientes_globales)} en memoria)"
+            if mejor_recordada is not None:
+                detalle_recordadas = (
+                    f"recordada {mejor_recordada} puntaje={mejor_puntaje_recordada:.3f} "
+                    f"umbral={UMBRAL_SIMILITUD_CROSS_CAMARA:.2f} "
+                    f"falto={UMBRAL_SIMILITUD_CROSS_CAMARA - mejor_puntaje_recordada:.3f}"
                 )
+            else:
+                detalle_recordadas = f"sin identidades recordadas ({len(identidades_recientes)} en memoria)"
+            logger.info(
+                "REID-NUEVO %s | %s | %s | cam=%s",
+                id_global, detalle_activas, detalle_recordadas, job.camara_id,
+            )
             datos = {
                 "historial": [huella_nueva],
                 "centroide": huella_nueva.clone(),
@@ -1159,11 +1243,35 @@ async def reloj_limpiador_background() -> None:
         with state_lock:
             vencidos = [pid for pid, datos in clientes_globales.items() if ahora - datos.get("timestamp", ahora) > TIEMPO_INACTIVIDAD_SEGUNDOS]
             sesiones = [(pid, clientes_globales.pop(pid)) for pid in vencidos]
-            for _pid, datos in sesiones:
+            for pid, datos in sesiones:
                 # Cierra el intervalo de la última zona antes de que la sesión
                 # se pierda; si no, el tiempo desde "zona_desde" hasta ahora
                 # nunca se contabiliza en zona_tiempos.
                 datos["zona_tiempos"] = _cerrar_intervalo_zona(datos, ahora)
+                # La sesión termina, la identidad no: se archiva por si la
+                # persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS). Sólo
+                # lo necesario para reconocerla — nada de fotos ni contadores
+                # de la visita, que ya se cerraron.
+                identidades_recientes[pid] = {
+                    "historial": datos["historial"],
+                    "centroide": datos["centroide"],
+                    "branch_id": datos.get("branch_id"),
+                    "archivada_en": ahora,
+                }
+            # Las identidades archivadas también vencen, si no la lista crece
+            # sin fin y cada comparación se vuelve más cara y más riesgosa.
+            olvidadas = [
+                pid for pid, datos in identidades_recientes.items()
+                if ahora - datos.get("archivada_en", ahora) > TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS
+            ]
+            for pid in olvidadas:
+                identidades_recientes.pop(pid, None)
+            if sesiones or olvidadas:
+                logger.info(
+                    "Limpieza: %d sesiones cerradas y archivadas, %d identidades olvidadas, "
+                    "%d activas, %d recordadas.",
+                    len(sesiones), len(olvidadas), len(clientes_globales), len(identidades_recientes),
+                )
             for clave in [k for k, v in traductor_camaras.items() if ahora - v.get("ultimo_update", 0.0) > TIEMPO_INACTIVIDAD_SEGUNDOS]:
                 traductor_camaras.pop(clave, None)
         for pid, datos in sesiones:
@@ -1245,6 +1353,9 @@ def health() -> dict:
             "queue_capacity": REID_QUEUE_SIZE,
             "reid_workers": REID_WORKERS,
             "active_global_ids": len(clientes_globales),
+            # Identidades con la sesión cerrada que todavía se recuerdan por si
+            # la persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS).
+            "identidades_recordadas": len(identidades_recientes),
             "heatmap_size": {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT},
             # Cambia en cada arranque. El dashboard lo usa para recargarse solo
             # tras un deploy: su HTML/JS viaja embebido en este archivo, así que
@@ -1322,6 +1433,9 @@ def resetear_memoria() -> dict:
     global contador_global_ids
     with state_lock:
         clientes_globales.clear()
+        # También las archivadas: si no, tras un reset seguirían reviviendo
+        # identidades viejas y el contador arrancaría sucio.
+        identidades_recientes.clear()
         traductor_camaras.clear()
         heatmap_celdas.clear()
         contador_global_ids = 1
