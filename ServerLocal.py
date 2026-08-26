@@ -1272,6 +1272,17 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
     genero, rango_edad = _analizar_demografia_al_cierre(datos.get("fotos_demografia", []))
     payload = {
         "branch_id": datos.get("branch_id", "SUC-001"),
+        # tracker_id sólo es único DENTRO de un arranque del servidor:
+        # contador_global_ids vuelve a 1 en cada reinicio, y los reinicios no
+        # los manda el calendario sino los deploys (cerebro-autopull chequea
+        # origin/main cada 5 min y reinicia), las caídas (Restart=on-failure) y
+        # /api/reset. Sin este sello, dos personas distintas del MISMO día
+        # quedan pisadas bajo el mismo Cliente_Global_N y el conteo diario sale
+        # más bajo que la realidad. La unidad de conteo es el par
+        # (instancia, tracker_id); no persiste nada entre días ni pretende
+        # hacerlo — la identidad se olvida sola a los
+        # TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS.
+        "instancia": INSTANCIA_ID,
         "tracker_id": pid,
         "gender": genero,
         "age_range": rango_edad,
@@ -1490,7 +1501,7 @@ def proxy_zonas() -> dict:
 
 @app.post("/api/reset")
 def resetear_memoria() -> dict:
-    global contador_global_ids
+    global contador_global_ids, INSTANCIA_ID
     with state_lock:
         clientes_globales.clear()
         # También las archivadas: si no, tras un reset seguirían reviviendo
@@ -1499,6 +1510,11 @@ def resetear_memoria() -> dict:
         traductor_camaras.clear()
         heatmap_celdas.clear()
         contador_global_ids = 1
+        # Un reset devuelve el contador a 1, así que estrena instancia: si no,
+        # los Cliente_Global de antes y de después del reset colisionarían en
+        # Supabase bajo el mismo par (instancia, tracker_id) — exactamente el
+        # caso que la columna viene a evitar.
+        INSTANCIA_ID = str(int(time.time()))
     return {"ok": True}
 
 
