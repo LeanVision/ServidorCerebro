@@ -273,6 +273,26 @@ metricas = {
     "last_processing_ms": 0.0,
 }
 
+# Resultado del último guardado en Supabase, para publicarlo en /health.
+#
+# El Cerebro estuvo 21 días (05/08 al 26/08 de 2026) sin guardar una sola
+# sesión y nadie se enteró. El proyecto de Supabase se había borrado y el único
+# rastro era un WARNING en el journal, que hay que ir a buscar por SSH sabiendo
+# de antemano que algo anda mal. /health publicaba RAM, swap, temperatura,
+# carga y RSS: todo sobre cómo está la Pi, nada sobre si el dato llega a
+# destino. Una Pi perfectamente sana puede estar tirando todas las sesiones a
+# la basura.
+#
+# Un guardado fallido es una sesión PERDIDA, no diferida: no hay reintento ni
+# buffer local (ver la contradicción de diseño sobre persistencia local).
+estado_supabase = {
+    "ok": 0,
+    "errores": 0,
+    "ultimo_ok_ts": None,
+    "ultimo_error_ts": None,
+    "ultimo_error": None,
+}
+
 
 @dataclass(frozen=True)
 class DetectionJob:
@@ -1265,9 +1285,55 @@ async def identificar_persona(
     return {"status": "queued", "queue_size": cola_reid.qsize()}
 
 
+def _registrar_resultado_supabase(error: str | None) -> None:
+    """Anota el resultado del último intento de guardado, para /health.
+
+    Se llama siempre DESPUÉS de que el POST terminó, nunca alrededor: state_lock
+    es el mismo lock del camino caliente de detecciones y no puede quedar tomado
+    durante los 5 s de timeout del request.
+    """
+    ahora = time.time()
+    with state_lock:
+        if error is None:
+            estado_supabase["ok"] += 1
+            estado_supabase["ultimo_ok_ts"] = ahora
+            return
+        estado_supabase["errores"] += 1
+        estado_supabase["ultimo_error_ts"] = ahora
+        # Recortado a propósito: el texto de una excepción de requests arrastra
+        # la URL completa y el body de la respuesta, y /health no pide auth.
+        estado_supabase["ultimo_error"] = error[:200]
+
+
+def _estado_supabase_publicable() -> dict:
+    """Foto del guardado en Supabase para /health.
+
+    `segundos_desde_ultimo_ok` en None no significa "roto": al arrancar todavía
+    no cerró ninguna sesión. Lo que delata un problema es `sesiones_perdidas`
+    creciendo, o un `ultimo_ok` que se hace viejo en horario de local abierto.
+    """
+    ahora = time.time()
+    with state_lock:
+        ultimo_ok = estado_supabase["ultimo_ok_ts"]
+        ultimo_error = estado_supabase["ultimo_error_ts"]
+        return {
+            "configurado": bool(SUPABASE_URL and SUPABASE_KEY),
+            "sesiones_guardadas": estado_supabase["ok"],
+            "sesiones_perdidas": estado_supabase["errores"],
+            "segundos_desde_ultimo_ok": (
+                round(ahora - ultimo_ok) if ultimo_ok is not None else None
+            ),
+            "segundos_desde_ultimo_error": (
+                round(ahora - ultimo_error) if ultimo_error is not None else None
+            ),
+            "ultimo_error": estado_supabase["ultimo_error"],
+        }
+
+
 def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.warning("Supabase no configurado; no se guarda la sesión %s.", pid)
+        _registrar_resultado_supabase("Supabase no configurado (falta SUPABASE_URL o SUPABASE_KEY).")
         return
     genero, rango_edad = _analizar_demografia_al_cierre(datos.get("fotos_demografia", []))
     payload = {
@@ -1302,7 +1368,9 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
     except requests.RequestException as error:
         cuerpo = getattr(error.response, "text", "")
         logger.warning("No se pudo guardar la sesión en Supabase: %s | body=%s", error, cuerpo)
+        _registrar_resultado_supabase(f"{error} | body={cuerpo}")
         return
+    _registrar_resultado_supabase(None)
     logger.info("Sesión %s guardada en Supabase (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
 
 
@@ -1428,6 +1496,8 @@ def health() -> dict:
             # la persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS).
             "identidades_recordadas": len(identidades_recientes),
             "heatmap_size": {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT},
+            # Lo único de /health que habla del destino del dato y no de la Pi.
+            "supabase": _estado_supabase_publicable(),
             # Cambia en cada arranque. El dashboard lo usa para recargarse solo
             # tras un deploy: su HTML/JS viaja embebido en este archivo, así que
             # una pestaña abierta desde antes seguiría hablando el contrato viejo.
@@ -2851,7 +2921,18 @@ def panel_web() -> str:
         if(tieneImagen){el.style.backgroundImage=`url(/api/plano/imagen?t=${Date.now()})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
         else{el.style.backgroundImage='';el.style.backgroundSize='';el.style.backgroundPosition='';}
       }
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h,p.contorno||[]);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
+      // El estado de Supabase se muestra al lado del resto de la salud
+      // porque el fallo que importa es invisible por definición: la Pi
+      // sigue procesando detecciones con normalidad mientras las sesiones
+      // se pierden. Un guardado fallido no se reintenta.
+      function textoSupabase(sb){
+        if(!sb) return 'Supabase: sin dato';
+        if(!sb.configurado) return 'Supabase: SIN CONFIGURAR';
+        if(sb.sesiones_perdidas>0) return `Supabase: ${sb.sesiones_guardadas} ok · ${sb.sesiones_perdidas} PERDIDAS`;
+        if(!sb.sesiones_guardadas) return 'Supabase: sin sesiones cerradas todavía';
+        return `Supabase: ${sb.sesiones_guardadas} guardadas`;
+      }
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h,p.contorno||[]);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms · ${textoSupabase(m.supabase)}`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
       function dibujarPlano(zonas,contorno,camaras,celdaPx){
         const c=$('#zones'),x=c.getContext('2d');
         x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,c.width,c.height);
