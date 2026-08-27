@@ -1405,6 +1405,21 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         "entered_at": datetime.fromtimestamp(datos["hora_entrada"], timezone.utc).isoformat(),
         "exited_at": datetime.fromtimestamp(datos["timestamp"], timezone.utc).isoformat(),
         "dwell_time_seconds": tiempo_adentro,
+        # Segundos en cada zona de negocio. Ya se calculaban al cerrar la
+        # sesión (ver _cerrar_intervalo_zona) y se descartaban: nadie los leía
+        # ni viajaban a ningún lado. Son los que permiten responder "cuánta
+        # gente pasó por la entrada" sin volver a mirar el video.
+        #
+        # La clave es el NOMBRE de la zona porque es lo que devuelve
+        # _zona_en_punto. Renombrar una zona parte su historial en dos.
+        #
+        # Se descartan los tramos de menos de un segundo: son el roce con el
+        # borde de una zona al pasar, no una visita a esa zona.
+        "zonas_tiempo": {
+            nombre: int(round(segundos))
+            for nombre, segundos in (datos.get("zona_tiempos") or {}).items()
+            if segundos >= 1
+        },
     }
     headers = {
         "apikey": SUPABASE_KEY,
