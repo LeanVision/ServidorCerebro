@@ -101,6 +101,24 @@ IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
+# Fotos periódicas del heatmap hacia Supabase.
+#
+# El heatmap es un acumulador en memoria sin dimensión temporal: no se puede
+# preguntar "la semana pasada" porque esa información nunca se guardó, y se
+# pierde entera en cada reinicio. Mandando fotos con su timestamp, el tránsito
+# de cualquier período pasa a ser la resta entre dos fotos.
+#
+# Vacío = apagado, para poder desplegar esto antes de que exista la tabla.
+# Identifica al local en todo lo que se manda a la nube. Estaba repetido como
+# literal en el alta de detecciones y en el cierre de sesión.
+BRANCH_ID_POR_DEFECTO = os.getenv("LEANVISION_BRANCH_ID", "SUC-001")
+
+SUPABASE_HEATMAP_URL = os.getenv("SUPABASE_HEATMAP_URL", "")
+# 15 minutos es un compromiso: lo que se acumule entre la última foto y un
+# reinicio se pierde, así que el intervalo es el techo de esa pérdida. Más
+# seguido acota más, y el volumen es despreciable (~100 celdas por foto).
+INTERVALO_FOTO_HEATMAP_SEGUNDOS = float(os.getenv("LEANVISION_INTERVALO_FOTO_HEATMAP", "900"))
+
 # Plano único multicámara: cada cámara se calibra con un cuadrilátero que
 # mapea su cuadro completo (4 esquinas) a una región del plano compartido.
 # Sin calibrar, las coordenadas de esa cámara pasan sin cambios (fallback
@@ -286,6 +304,17 @@ metricas = {
 # Un guardado fallido es una sesión PERDIDA, no diferida: no hay reintento ni
 # buffer local (ver la contradicción de diseño sobre persistencia local).
 estado_supabase = {
+    "ok": 0,
+    "errores": 0,
+    "ultimo_ok_ts": None,
+    "ultimo_error_ts": None,
+    "ultimo_error": None,
+}
+
+# Igual que el anterior pero para las fotos del heatmap. Separado a propósito:
+# que fallen las fotos y que se pierdan sesiones son dos problemas distintos y
+# mezclarlos en un contador escondería el que importa.
+estado_heatmap = {
     "ok": 0,
     "errores": 0,
     "ultimo_ok_ts": None,
@@ -1257,7 +1286,7 @@ async def identificar_persona(
     zona: str = Form("Desconocida"),
     tracker_id: str | None = Form(None),
     camara_id: str = Form("camara_default"),
-    branch_id: str = Form("SUC-001"),
+    branch_id: str = Form(BRANCH_ID_POR_DEFECTO),
     pos_x: str = Form("0"),
     pos_y: str = Form("0"),
 ):
@@ -1330,6 +1359,27 @@ def _estado_supabase_publicable() -> dict:
         }
 
 
+def _estado_heatmap_publicable() -> dict:
+    """Foto del publicador de heatmap para /health."""
+    ahora = time.time()
+    with state_lock:
+        ultimo_ok = estado_heatmap["ultimo_ok_ts"]
+        ultimo_error = estado_heatmap["ultimo_error_ts"]
+        return {
+            "activo": bool(SUPABASE_HEATMAP_URL and SUPABASE_KEY),
+            "intervalo_segundos": INTERVALO_FOTO_HEATMAP_SEGUNDOS,
+            "fotos_guardadas": estado_heatmap["ok"],
+            "fotos_perdidas": estado_heatmap["errores"],
+            "segundos_desde_ultima_ok": (
+                round(ahora - ultimo_ok) if ultimo_ok is not None else None
+            ),
+            "segundos_desde_ultimo_error": (
+                round(ahora - ultimo_error) if ultimo_error is not None else None
+            ),
+            "ultimo_error": estado_heatmap["ultimo_error"],
+        }
+
+
 def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.warning("Supabase no configurado; no se guarda la sesión %s.", pid)
@@ -1337,7 +1387,7 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         return
     genero, rango_edad = _analizar_demografia_al_cierre(datos.get("fotos_demografia", []))
     payload = {
-        "branch_id": datos.get("branch_id", "SUC-001"),
+        "branch_id": datos.get("branch_id", BRANCH_ID_POR_DEFECTO),
         # tracker_id sólo es único DENTRO de un arranque del servidor:
         # contador_global_ids vuelve a 1 en cada reinicio, y los reinicios no
         # los manda el calendario sino los deploys (cerebro-autopull chequea
@@ -1372,6 +1422,76 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         return
     _registrar_resultado_supabase(None)
     logger.info("Sesión %s guardada en Supabase (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
+
+
+def _registrar_resultado_heatmap(error: str | None) -> None:
+    """Anota el resultado de la última foto, para /health."""
+    ahora = time.time()
+    with state_lock:
+        if error is None:
+            estado_heatmap["ok"] += 1
+            estado_heatmap["ultimo_ok_ts"] = ahora
+            return
+        estado_heatmap["errores"] += 1
+        estado_heatmap["ultimo_error_ts"] = ahora
+        estado_heatmap["ultimo_error"] = error[:200]
+
+
+def _enviar_foto_heatmap(payload: dict) -> None:
+    """POST de una foto del heatmap. Corre en el executor, nunca con el lock
+    tomado: el request tiene 10s de timeout y state_lock es el del camino
+    caliente de detecciones."""
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        response = requests.post(SUPABASE_HEATMAP_URL, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as error:
+        cuerpo = getattr(error.response, "text", "")
+        logger.warning("No se pudo guardar la foto del heatmap: %s | body=%s", error, cuerpo)
+        _registrar_resultado_heatmap(f"{error} | body={cuerpo}")
+        return
+    _registrar_resultado_heatmap(None)
+    logger.info(
+        "Foto del heatmap guardada (%d celdas, max %.0f).",
+        len(payload["celdas"]),
+        payload["max"],
+    )
+
+
+async def reloj_fotos_heatmap_background() -> None:
+    """Manda una foto del heatmap cada INTERVALO_FOTO_HEATMAP_SEGUNDOS.
+
+    La foto se toma bajo el lock (barato) y el POST se hace fuera (caro). El
+    `instancia` viaja en cada foto porque el acumulador vuelve a cero en cada
+    reinicio: quien lea esto NO debe restar dos fotos de instancias distintas,
+    daría negativo. La primera foto de una instancia nueva es una base.
+    """
+    if not SUPABASE_HEATMAP_URL or not SUPABASE_KEY:
+        logger.info("Fotos del heatmap desactivadas (falta SUPABASE_HEATMAP_URL).")
+        return
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(INTERVALO_FOTO_HEATMAP_SEGUNDOS)
+        with state_lock:
+            celdas, maximo, celda_px = _snapshot_heatmap()
+            ppm = _pixeles_por_metro()
+        if not celdas:
+            continue
+        payload = {
+            "branch_id": BRANCH_ID_POR_DEFECTO,
+            "instancia": INSTANCIA_ID,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "celda_px": round(celda_px, 3),
+            "celda_metros": round(celda_px / ppm, 3) if ppm else None,
+            "max": maximo,
+            "celdas": celdas,
+        }
+        await loop.run_in_executor(supabase_executor, _enviar_foto_heatmap, payload)
 
 
 async def reloj_limpiador_background() -> None:
@@ -1427,6 +1547,7 @@ async def iniciar_servicios() -> None:
     for _ in range(REID_WORKERS):
         asyncio.create_task(_worker_reid())
     asyncio.create_task(reloj_limpiador_background())
+    asyncio.create_task(reloj_fotos_heatmap_background())
 
 
 def _metricas_sistema() -> dict:
@@ -1498,6 +1619,7 @@ def health() -> dict:
             "heatmap_size": {"width": HEATMAP_WIDTH, "height": HEATMAP_HEIGHT},
             # Lo único de /health que habla del destino del dato y no de la Pi.
             "supabase": _estado_supabase_publicable(),
+            "heatmap_fotos": _estado_heatmap_publicable(),
             # Cambia en cada arranque. El dashboard lo usa para recargarse solo
             # tras un deploy: su HTML/JS viaja embebido en este archivo, así que
             # una pestaña abierta desde antes seguiría hablando el contrato viejo.
