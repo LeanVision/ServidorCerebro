@@ -1519,9 +1519,18 @@ async def reloj_limpiador_background() -> None:
             sesiones = [(pid, clientes_globales.pop(pid)) for pid in vencidos]
             for pid, datos in sesiones:
                 # Cierra el intervalo de la última zona antes de que la sesión
-                # se pierda; si no, el tiempo desde "zona_desde" hasta ahora
-                # nunca se contabiliza en zona_tiempos.
-                datos["zona_tiempos"] = _cerrar_intervalo_zona(datos, ahora)
+                # se pierda; si no, el tiempo desde "zona_desde" nunca se
+                # contabiliza en zona_tiempos.
+                #
+                # Se cierra en datos["timestamp"] (la última vez que se vio a la
+                # persona) y NO en `ahora`. `ahora` es el momento en que el
+                # limpiador da la sesión por terminada, que llega
+                # TIEMPO_INACTIVIDAD_SEGUNDOS más tarde — hasta 80s contando el
+                # intervalo de chequeo. Cerrar en `ahora` mete esa espera dentro
+                # de la última zona: se midió una visita de 89s con 160s en una
+                # sola zona, imposible. Es el mismo instante que usa
+                # tiempo_adentro, así que ahora los dos números son coherentes.
+                datos["zona_tiempos"] = _cerrar_intervalo_zona(datos, datos["timestamp"])
                 # La sesión termina, la identidad no: se archiva por si la
                 # persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS). Sólo
                 # lo necesario para reconocerla — nada de fotos ni contadores
