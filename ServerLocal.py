@@ -1415,8 +1415,13 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
         #
         # Se descartan los tramos de menos de un segundo: son el roce con el
         # borde de una zona al pasar, no una visita a esa zona.
+        # Trunca, no redondea. tiempo_adentro se calcula con int(), que trunca:
+        # si una zona redondeaba para arriba, la suma de las zonas podia superar
+        # la permanencia total por un segundo y parecer el bug de la ventana de
+        # inactividad que se arreglo antes. Truncar las dos hace imposible ese
+        # falso positivo, al costo de perder hasta un segundo por zona.
         "zonas_tiempo": {
-            nombre: int(round(segundos))
+            nombre: int(segundos)
             for nombre, segundos in (datos.get("zona_tiempos") or {}).items()
             if segundos >= 1
         },
