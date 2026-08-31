@@ -1,0 +1,37 @@
+-- ============================================================================
+-- Restricción única que hace seguros los reintentos del outbox.
+--
+-- CORRER ESTO ANTES DE DESPLEGAR EL OUTBOX.
+--
+-- POR QUÉ
+-- Una cola de salida con reintentos es entrega AL MENOS UNA VEZ, no exactamente
+-- una vez: si el POST llega al servidor pero la respuesta se corta en el
+-- camino, la Pi no sabe que funcionó y lo reintenta. Sin esta restricción, cada
+-- timeout que en realidad tuvo éxito agrega una visita falsa y el conteo se
+-- infla en silencio.
+--
+-- El Cerebro manda un INSERT plano. Con este índice, el reintento de algo ya
+-- guardado es rechazado con 409 / 23505, y el outbox trata ese 409 como
+-- entrega exitosa: el hecho ya está en la base.
+--
+-- NO se usa upsert (`on_conflict` + `ignore-duplicates`) a propósito: PostgREST
+-- lo implementa con ON CONFLICT, que exige política de UPDATE sobre la tabla.
+-- `anon` no la tiene ni debe tenerla — medido: el upsert con la anon key
+-- devuelve 401 por RLS. Dejar que el índice rechace el duplicado consigue lo
+-- mismo sin ampliarle permisos a la clave que vive en la Pi.
+--
+-- POR QUÉ ESAS TRES COLUMNAS
+-- Identifican el hecho sin inventar campos nuevos. `tracker_id` solo no alcanza
+-- porque el contador vuelve a 1 en cada arranque; con `instancia` el par ya es
+-- único dentro de una corrida, y `entered_at` distingue dos visitas de la misma
+-- persona.
+--
+-- Verificado antes de escribir esto: 215 filas, cero duplicados sobre esas tres
+-- columnas. Se puede crear sin limpiar nada.
+--
+-- Las 6 filas viejas con `instancia` NULL no molestan: en Postgres los NULL se
+-- consideran distintos entre sí en un índice único, así que conviven.
+-- ============================================================================
+
+create unique index if not exists visitor_sessions_identidad_uniq
+  on public.visitor_sessions (instancia, tracker_id, entered_at);
