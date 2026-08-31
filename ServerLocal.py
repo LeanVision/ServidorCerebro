@@ -1388,8 +1388,8 @@ def _estado_heatmap_publicable() -> dict:
         }
 
 
-def _entregar(payload: dict) -> str | None:
-    """Manda un payload al destino. Devuelve el error como texto, o None si OK.
+def _entregar(tipo: str, payload: dict) -> str | None:
+    """Manda un payload a su destino. Devuelve el error como texto, o None si OK.
 
     Todo lo que depende de A DONDE se manda —la URL, la autenticación y la
     forma del envío— vive acá y sólo acá. El día que el destino pase a ser la
@@ -1409,8 +1409,9 @@ def _entregar(payload: dict) -> str | None:
 
     Requiere deploy/visitor_sessions_unique.sql.
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        return "Supabase no configurado (falta SUPABASE_URL o SUPABASE_KEY)."
+    destino = SUPABASE_HEATMAP_URL if tipo == "heatmap" else SUPABASE_URL
+    if not destino or not SUPABASE_KEY:
+        return f"Destino de '{tipo}' no configurado."
 
     headers = {
         "apikey": SUPABASE_KEY,
@@ -1419,7 +1420,7 @@ def _entregar(payload: dict) -> str | None:
         "Prefer": "return=minimal",
     }
     try:
-        response = requests.post(SUPABASE_URL, json=payload, headers=headers, timeout=10)
+        response = requests.post(destino, json=payload, headers=headers, timeout=10)
         if response.status_code == 409:
             # Ya estaba guardado: el reintento llegó después de un envío que sí
             # había funcionado. Es éxito, no error.
@@ -1444,14 +1445,23 @@ async def reloj_outbox_background() -> None:
         try:
             tanda = await loop.run_in_executor(supabase_executor, outbox.pendientes, 50)
             for fila in tanda:
-                error = await loop.run_in_executor(supabase_executor, _entregar, fila["payload"])
+                error = await loop.run_in_executor(
+                    supabase_executor, _entregar, fila["tipo"], fila["payload"]
+                )
+                # Sesiones y fotos se cuentan por separado en /health: que fallen
+                # las fotos y que se pierdan visitas son problemas distintos.
+                anotar = (
+                    _registrar_resultado_heatmap
+                    if fila["tipo"] == "heatmap"
+                    else _registrar_resultado_supabase
+                )
                 if error is None:
                     await loop.run_in_executor(supabase_executor, outbox.marcar_enviado, fila["id"])
-                    _registrar_resultado_supabase(None)
+                    anotar(None)
                     logger.info("Entregado %s #%s.", fila["tipo"], fila["id"])
                 else:
                     await loop.run_in_executor(supabase_executor, outbox.marcar_error, fila["id"], error)
-                    _registrar_resultado_supabase(error)
+                    anotar(error)
                     logger.warning("No se pudo entregar #%s: %s", fila["id"], error)
                     # Si falló uno, lo más probable es que falle el resto:
                     # se corta la tanda y se espera al próximo ciclo.
@@ -1538,32 +1548,6 @@ def _registrar_resultado_heatmap(error: str | None) -> None:
         estado_heatmap["ultimo_error"] = error[:200]
 
 
-def _enviar_foto_heatmap(payload: dict) -> None:
-    """POST de una foto del heatmap. Corre en el executor, nunca con el lock
-    tomado: el request tiene 10s de timeout y state_lock es el del camino
-    caliente de detecciones."""
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-    }
-    try:
-        response = requests.post(SUPABASE_HEATMAP_URL, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as error:
-        cuerpo = getattr(error.response, "text", "")
-        logger.warning("No se pudo guardar la foto del heatmap: %s | body=%s", error, cuerpo)
-        _registrar_resultado_heatmap(f"{error} | body={cuerpo}")
-        return
-    _registrar_resultado_heatmap(None)
-    logger.info(
-        "Foto del heatmap guardada (%d celdas, max %.0f).",
-        len(payload["celdas"]),
-        payload["max"],
-    )
-
-
 async def reloj_fotos_heatmap_background() -> None:
     """Manda una foto del heatmap cada INTERVALO_FOTO_HEATMAP_SEGUNDOS.
 
@@ -1592,7 +1576,12 @@ async def reloj_fotos_heatmap_background() -> None:
             "max": maximo,
             "celdas": celdas,
         }
-        await loop.run_in_executor(supabase_executor, _enviar_foto_heatmap, payload)
+        # Una foto por instante de captura. Reencolar la misma no la duplica, y
+        # el índice único del lado del servidor rechaza el reintento con 409.
+        idempotencia = f"heatmap:{INSTANCIA_ID}:{payload['captured_at']}"
+        await loop.run_in_executor(
+            supabase_executor, outbox.encolar, "heatmap", idempotencia, payload
+        )
 
 
 async def reloj_limpiador_background() -> None:

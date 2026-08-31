@@ -41,6 +41,17 @@ create table if not exists public.heatmap_snapshots (
 create index if not exists heatmap_snapshots_branch_capturado_idx
   on public.heatmap_snapshots (branch_id, captured_at desc);
 
+-- Hace seguro el reintento del outbox. Las fotos se entregan desde la cola en
+-- disco, que es entrega AL MENOS UNA VEZ: si el POST llega pero la respuesta se
+-- corta, el reintento vuelve a mandar la misma foto. Con este índice, ese
+-- reintento es rechazado con 409 / 23505 y el Cerebro lo trata como entrega
+-- exitosa, porque el hecho ya está guardado.
+--
+-- Mismo criterio que visitor_sessions: INSERT plano y no upsert, porque el
+-- upsert exige política de UPDATE y `anon` no la tiene ni debe tenerla.
+create unique index if not exists heatmap_snapshots_identidad_uniq
+  on public.heatmap_snapshots (branch_id, instancia, captured_at);
+
 alter table public.heatmap_snapshots enable row level security;
 
 -- El Cerebro escribe con la anon key y NO debe poder leer: si esa clave se
