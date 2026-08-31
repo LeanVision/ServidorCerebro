@@ -65,6 +65,8 @@ def _cargar_dotenv_local(ruta: str = ".env") -> None:
 
 _cargar_dotenv_local()
 
+import outbox
+
 HEATMAP_WIDTH = 640
 HEATMAP_HEIGHT = 480
 # Heatmap por grilla, acumulativo (sin decaimiento): se mantiene estable
@@ -112,6 +114,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 # Identifica al local en todo lo que se manda a la nube. Estaba repetido como
 # literal en el alta de detecciones y en el cierre de sesión.
 BRANCH_ID_POR_DEFECTO = os.getenv("LEANVISION_BRANCH_ID", "SUC-001")
+
+# Cada cuánto se intenta drenar la cola de salida. Con el local abierto, unos
+# pocos segundos alcanzan: lo que importa no es la frecuencia sino que la
+# espera crezca ante fallas, y de eso se encarga el propio outbox.
+INTERVALO_OUTBOX_SEGUNDOS = float(os.getenv("LEANVISION_INTERVALO_OUTBOX", "10"))
+DIAS_RETENCION_OUTBOX = float(os.getenv("LEANVISION_OUTBOX_RETENCION_DIAS", "15"))
 
 SUPABASE_HEATMAP_URL = os.getenv("SUPABASE_HEATMAP_URL", "")
 # 15 minutos es un compromiso: lo que se acumule entre la última foto y un
@@ -1380,11 +1388,92 @@ def _estado_heatmap_publicable() -> dict:
         }
 
 
-def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> None:
+def _entregar(payload: dict) -> str | None:
+    """Manda un payload al destino. Devuelve el error como texto, o None si OK.
+
+    Todo lo que depende de A DONDE se manda —la URL, la autenticación y la
+    forma del envío— vive acá y sólo acá. El día que el destino pase a ser la
+    app en vez de Supabase, se cambia esta función y nada más: la cola, los
+    reintentos y la retención no se enteran.
+
+    Un outbox es entrega AL MENOS UNA VEZ: si el POST llega pero la respuesta
+    se corta, el reintento vuelve a mandar la misma visita. El índice único
+    sobre (instancia, tracker_id, entered_at) la rechaza con 409 / 23505, y
+    ese 409 se trata como entrega exitosa: el hecho YA está guardado.
+
+    Se usa un INSERT plano y NO un upsert con `on_conflict` a propósito.
+    PostgREST implementa el upsert con ON CONFLICT, que exige política de
+    UPDATE sobre la tabla; `anon` no la tiene ni debe tenerla, y de hecho el
+    upsert con la anon key devuelve 401 por RLS (medido). Dejar que el índice
+    rechace el duplicado consigue lo mismo sin ampliar permisos.
+
+    Requiere deploy/visitor_sessions_unique.sql.
+    """
     if not SUPABASE_URL or not SUPABASE_KEY:
-        logger.warning("Supabase no configurado; no se guarda la sesión %s.", pid)
-        _registrar_resultado_supabase("Supabase no configurado (falta SUPABASE_URL o SUPABASE_KEY).")
-        return
+        return "Supabase no configurado (falta SUPABASE_URL o SUPABASE_KEY)."
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        response = requests.post(SUPABASE_URL, json=payload, headers=headers, timeout=10)
+        if response.status_code == 409:
+            # Ya estaba guardado: el reintento llegó después de un envío que sí
+            # había funcionado. Es éxito, no error.
+            return None
+        response.raise_for_status()
+    except requests.RequestException as error:
+        cuerpo = getattr(error.response, "text", "")
+        return f"{error} | body={cuerpo}"
+    return None
+
+
+async def reloj_outbox_background() -> None:
+    """Drena la cola y la purga. Es lo único que habla con la red.
+
+    Corre siempre, aunque no haya nada: una tanda vacía cuesta una consulta a
+    un índice parcial que casi siempre está vacío.
+    """
+    loop = asyncio.get_running_loop()
+    ultima_limpieza = 0.0
+    while True:
+        await asyncio.sleep(INTERVALO_OUTBOX_SEGUNDOS)
+        try:
+            tanda = await loop.run_in_executor(supabase_executor, outbox.pendientes, 50)
+            for fila in tanda:
+                error = await loop.run_in_executor(supabase_executor, _entregar, fila["payload"])
+                if error is None:
+                    await loop.run_in_executor(supabase_executor, outbox.marcar_enviado, fila["id"])
+                    _registrar_resultado_supabase(None)
+                    logger.info("Entregado %s #%s.", fila["tipo"], fila["id"])
+                else:
+                    await loop.run_in_executor(supabase_executor, outbox.marcar_error, fila["id"], error)
+                    _registrar_resultado_supabase(error)
+                    logger.warning("No se pudo entregar #%s: %s", fila["id"], error)
+                    # Si falló uno, lo más probable es que falle el resto:
+                    # se corta la tanda y se espera al próximo ciclo.
+                    break
+
+            ahora = time.time()
+            if ahora - ultima_limpieza > 3600:
+                ultima_limpieza = ahora
+                borradas = await loop.run_in_executor(supabase_executor, outbox.limpiar, DIAS_RETENCION_OUTBOX)
+                if borradas:
+                    logger.info("Outbox: %d entregas viejas purgadas.", borradas)
+        except Exception as error:
+            # Este reloj no puede morirse: si se cae, deja de entregarse todo.
+            logger.warning("Ciclo del outbox falló: %s", error)
+
+
+def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> None:
+    """Arma el payload de una sesión y lo deja en la cola.
+
+    Ya no manda nada por red: escribe en disco y vuelve. La entrega la hace
+    reloj_outbox_background. Antes, si el POST fallaba, la visita se perdía.
+    """
     genero, rango_edad = _analizar_demografia_al_cierre(datos.get("fotos_demografia", []))
     payload = {
         "branch_id": datos.get("branch_id", BRANCH_ID_POR_DEFECTO),
@@ -1426,22 +1515,14 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
             if segundos >= 1
         },
     }
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-    }
-    try:
-        response = requests.post(SUPABASE_URL, json=payload, headers=headers, timeout=5)
-        response.raise_for_status()
-    except requests.RequestException as error:
-        cuerpo = getattr(error.response, "text", "")
-        logger.warning("No se pudo guardar la sesión en Supabase: %s | body=%s", error, cuerpo)
-        _registrar_resultado_supabase(f"{error} | body={cuerpo}")
-        return
-    _registrar_resultado_supabase(None)
-    logger.info("Sesión %s guardada en Supabase (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
+
+    # Identifica el HECHO, no el envío: la misma visita reencolada dos veces es
+    # la misma fila. Sale de datos que ya existen, sin columnas nuevas.
+    idempotencia = f"{INSTANCIA_ID}:{pid}:{int(datos['hora_entrada'])}"
+    if outbox.encolar("sesion", idempotencia, payload):
+        logger.info("Sesión %s encolada (%ds, %s, %s).", pid, tiempo_adentro, genero, rango_edad)
+    else:
+        logger.info("Sesión %s ya estaba encolada; no se duplica.", pid)
 
 
 def _registrar_resultado_heatmap(error: str | None) -> None:
@@ -1575,6 +1656,8 @@ async def iniciar_servicios() -> None:
     cola_reid = asyncio.Queue(maxsize=REID_QUEUE_SIZE)
     for _ in range(REID_WORKERS):
         asyncio.create_task(_worker_reid())
+    outbox.inicializar()
+    asyncio.create_task(reloj_outbox_background())
     asyncio.create_task(reloj_limpiador_background())
     asyncio.create_task(reloj_fotos_heatmap_background())
 
@@ -1649,6 +1732,9 @@ def health() -> dict:
             # Lo único de /health que habla del destino del dato y no de la Pi.
             "supabase": _estado_supabase_publicable(),
             "heatmap_fotos": _estado_heatmap_publicable(),
+            # Una cola que deja de drenar es tan invisible como lo era la
+            # pérdida de sesiones antes del #17. Mirar segundos_del_mas_viejo.
+            "outbox": outbox.estado(),
             # Cambia en cada arranque. El dashboard lo usa para recargarse solo
             # tras un deploy: su HTML/JS viaja embebido en este archivo, así que
             # una pestaña abierta desde antes seguiría hablando el contrato viejo.

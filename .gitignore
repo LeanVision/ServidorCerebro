@@ -14,3 +14,11 @@ Claude Setup.exe
 # Artefactos de Python.
 __pycache__/
 *.pyc
+
+# Cola de salida del outbox. Por defecto vive FUERA del repo (../estado/),
+# porque cerebro-autopull hace git pull acá cada 5 minutos. Esto es por si
+# alguien la mueve adentro con LEANVISION_OUTBOX_DB.
+*.db
+*.db-wal
+*.db-shm
+estado/
