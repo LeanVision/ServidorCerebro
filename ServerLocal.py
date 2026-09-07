@@ -1074,9 +1074,21 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
         mejor_misma_camara = False
         mejor_coincide_piso = False
         candidatos_continuidad: list[tuple[str, float]] = []
+        # Por qué se descartó cada candidata, para el log de REID-NUEVO. Medido
+        # el 2026-09-07 sobre 7 días: 79 de 113 identidades nuevas se crearon
+        # con sesiones vivas en memoria y NINGUNA puntuó. Sin separar los
+        # motivos no se sabe qué constante mover, y el umbral de similitud
+        # —que era la sospecha— no interviene en esos casos.
+        descartadas_otra_sucursal = 0
+        descartadas_bloqueadas = 0
+        descartadas_salto_de_zona = 0
 
         for persona_id, datos in clientes_globales.items():
-            if datos.get("branch_id") != job.branch_id or persona_id in bloqueados:
+            if datos.get("branch_id") != job.branch_id:
+                descartadas_otra_sucursal += 1
+                continue
+            if persona_id in bloqueados:
+                descartadas_bloqueadas += 1
                 continue
             misma_camara = datos.get("camara_id") == job.camara_id
             # El salto de zona "imposible en tan poco tiempo" sólo tiene
@@ -1088,6 +1100,7 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
                 and zona_calculada != datos.get("zona_actual")
                 and ahora - datos.get("timestamp", 0.0) < TIEMPO_TELETRANSPORTACION
             ):
+                descartadas_salto_de_zona += 1
                 continue
 
             puntaje = _puntaje_identidad(huella_nueva, datos)
@@ -1208,7 +1221,18 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
                     f"umbral={umbral_aplicable:.2f} falto={umbral_aplicable - mejor_puntaje:.3f}"
                 )
             else:
-                detalle_activas = f"sin sesiones activas ({len(clientes_globales)} en memoria)"
+                # Distinguir POR QUÉ no puntuó ninguna: "sin sesiones activas"
+                # se leía como "no había nadie", y casi siempre había. Cada
+                # motivo apunta a una constante distinta —
+                # DISTANCIA_REID_LOCAL_PX y TIEMPO_TRACKER_ACTIVO para las
+                # bloqueadas, TIEMPO_TELETRANSPORTACION para el salto de zona—
+                # y ninguno es el umbral de similitud.
+                detalle_activas = (
+                    f"ninguna candidata puntuó ({len(clientes_globales)} en memoria; "
+                    f"{descartadas_bloqueadas} bloqueadas por otro tracker de la misma cámara, "
+                    f"{descartadas_salto_de_zona} por salto de zona, "
+                    f"{descartadas_otra_sucursal} de otra sucursal)"
+                )
             if mejor_recordada is not None:
                 detalle_recordadas = (
                     f"recordada {mejor_recordada} puntaje={mejor_puntaje_recordada:.3f} "
