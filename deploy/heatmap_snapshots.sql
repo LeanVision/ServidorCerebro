@@ -61,12 +61,19 @@ create policy "el cerebro puede guardar fotos"
   on public.heatmap_snapshots for insert to anon
   with check (true);
 
--- El panel lee sólo con sesión iniciada. Cuando haya más de una empresa esto
--- tiene que cruzar contra las membresías, igual que visitor_sessions.
+-- NO se crea política de lectura, a propósito.
+--
+-- La versión anterior de este archivo daba `select` a `authenticated` con
+-- `using (true)`: cualquier usuario logueado de CUALQUIER organización podía
+-- leer las fotos de todos los locales. Es exactamente el agujero multi-tenant
+-- que ya se evitó en visitor_sessions, donde el panel NO reabrió la política y
+-- lee con el cliente admin del lado del servidor, después de que
+-- resolveWorkspaceContext() confirme el acceso (ver lib/visitor-traffic.ts y
+-- lib/heatmap-history.ts en leanretail-platform).
+--
+-- Sin política de select, la anon key que vive en la Pi tampoco puede leer:
+-- si se filtra, sirve para escribir fotos y para nada más.
 drop policy if exists "usuarios logueados leen fotos" on public.heatmap_snapshots;
-create policy "usuarios logueados leen fotos"
-  on public.heatmap_snapshots for select to authenticated
-  using (true);
 
 -- ============================================================================
 -- RETENCIÓN — definirla ahora, no en seis meses
