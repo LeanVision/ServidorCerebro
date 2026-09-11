@@ -100,17 +100,25 @@ ZONA_CELDA_MAX_PX = 120
 TOLERANCIA_FUERA_DEL_LOCAL_METROS = 1.5
 TOLERANCIA_FUERA_DEL_LOCAL_PX_SIN_ESCALA = 60  # fallback mientras no se definió la escala real.
 IP_CAMARA = os.getenv("LEANVISION_CAMERA_URL", "http://172.31.99.7:8002")
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+# Destino de todo lo que sale del Cerebro: la app, no la base de datos.
+#
+# Antes el Cerebro escribía directo en Supabase con la anon key compartida y un
+# branch_id de texto libre: cualquier equipo con esa clave podía guardar filas a
+# nombre de cualquier sucursal. Ahora se autentica con su propia credencial de
+# dispositivo, revocable desde el panel, y la app decide a qué sucursal pertenece
+# lo que llega. Se obtiene con deploy/enrolar-cerebro.py.
+LEANRETAIL_INGEST_URL = os.getenv("LEANRETAIL_INGEST_URL", "")
+LEANRETAIL_KEY_ID = os.getenv("LEANRETAIL_KEY_ID", "")
+LEANRETAIL_SECRET = os.getenv("LEANRETAIL_SECRET", "")
+ENTREGA_CONFIGURADA = bool(LEANRETAIL_INGEST_URL and LEANRETAIL_KEY_ID and LEANRETAIL_SECRET)
 
-# Fotos periódicas del heatmap hacia Supabase.
+# Fotos periódicas del heatmap.
 #
 # El heatmap es un acumulador en memoria sin dimensión temporal: no se puede
 # preguntar "la semana pasada" porque esa información nunca se guardó, y se
 # pierde entera en cada reinicio. Mandando fotos con su timestamp, el tránsito
 # de cualquier período pasa a ser la resta entre dos fotos.
 #
-# Vacío = apagado, para poder desplegar esto antes de que exista la tabla.
 # Identifica al local en todo lo que se manda a la nube. Estaba repetido como
 # literal en el alta de detecciones y en el cierre de sesión.
 BRANCH_ID_POR_DEFECTO = os.getenv("LEANVISION_BRANCH_ID", "SUC-001")
@@ -121,7 +129,6 @@ BRANCH_ID_POR_DEFECTO = os.getenv("LEANVISION_BRANCH_ID", "SUC-001")
 INTERVALO_OUTBOX_SEGUNDOS = float(os.getenv("LEANVISION_INTERVALO_OUTBOX", "10"))
 DIAS_RETENCION_OUTBOX = float(os.getenv("LEANVISION_OUTBOX_RETENCION_DIAS", "15"))
 
-SUPABASE_HEATMAP_URL = os.getenv("SUPABASE_HEATMAP_URL", "")
 # 15 minutos es un compromiso: lo que se acumule entre la última foto y un
 # reinicio se pierde, así que el intervalo es el techo de esa pérdida. Más
 # seguido acota más, y el volumen es despreciable (~100 celdas por foto).
@@ -416,10 +423,10 @@ except Exception as error:
     tiene_demografia = False
     logger.warning("Edad/género no disponible (%s); las sesiones se guardarán sin demografía.", error)
 
-if not SUPABASE_URL or not SUPABASE_KEY:
+if not ENTREGA_CONFIGURADA:
     logger.warning(
-        "SUPABASE_URL / SUPABASE_KEY no configurados (esperados en .env o variables de entorno); "
-        "las sesiones no se guardarán en Supabase."
+        "LEANRETAIL_INGEST_URL / LEANRETAIL_KEY_ID / LEANRETAIL_SECRET no configurados "
+        "(ver deploy/enrolar-cerebro.py); las visitas quedan en la cola en disco sin entregarse."
     )
 
 
@@ -1378,7 +1385,7 @@ def _estado_supabase_publicable() -> dict:
         ultimo_ok = estado_supabase["ultimo_ok_ts"]
         ultimo_error = estado_supabase["ultimo_error_ts"]
         return {
-            "configurado": bool(SUPABASE_URL and SUPABASE_KEY),
+            "configurado": ENTREGA_CONFIGURADA,
             "sesiones_guardadas": estado_supabase["ok"],
             "sesiones_perdidas": estado_supabase["errores"],
             "segundos_desde_ultimo_ok": (
@@ -1398,7 +1405,7 @@ def _estado_heatmap_publicable() -> dict:
         ultimo_ok = estado_heatmap["ultimo_ok_ts"]
         ultimo_error = estado_heatmap["ultimo_error_ts"]
         return {
-            "activo": bool(SUPABASE_HEATMAP_URL and SUPABASE_KEY),
+            "activo": ENTREGA_CONFIGURADA,
             "intervalo_segundos": INTERVALO_FOTO_HEATMAP_SEGUNDOS,
             "fotos_guardadas": estado_heatmap["ok"],
             "fotos_perdidas": estado_heatmap["errores"],
@@ -1416,35 +1423,29 @@ def _entregar(tipo: str, payload: dict) -> str | None:
     """Manda un payload a su destino. Devuelve el error como texto, o None si OK.
 
     Todo lo que depende de A DONDE se manda —la URL, la autenticación y la
-    forma del envío— vive acá y sólo acá. El día que el destino pase a ser la
-    app en vez de Supabase, se cambia esta función y nada más: la cola, los
-    reintentos y la retención no se enteran.
+    forma del envío— vive acá y sólo acá: la cola, los reintentos y la retención
+    no se enteran.
+
+    El destino es la app (POST /api/edge/ingest), autenticada con la
+    credencial de dispositivo del Cerebro. La app decide la sucursal a partir
+    de esa credencial e ignora el branch_id del payload.
 
     Un outbox es entrega AL MENOS UNA VEZ: si el POST llega pero la respuesta
-    se corta, el reintento vuelve a mandar la misma visita. El índice único
-    sobre (instancia, tracker_id, entered_at) la rechaza con 409 / 23505, y
-    ese 409 se trata como entrega exitosa: el hecho YA está guardado.
-
-    Se usa un INSERT plano y NO un upsert con `on_conflict` a propósito.
-    PostgREST implementa el upsert con ON CONFLICT, que exige política de
-    UPDATE sobre la tabla; `anon` no la tiene ni debe tenerla, y de hecho el
-    upsert con la anon key devuelve 401 por RLS (medido). Dejar que el índice
-    rechace el duplicado consigue lo mismo sin ampliar permisos.
-
-    Requiere deploy/visitor_sessions_unique.sql.
+    se corta, el reintento vuelve a mandar la misma visita. El índice único de
+    la tabla la rechaza y la app contesta 409, que acá se trata como entrega
+    exitosa: el hecho YA está guardado.
     """
-    destino = SUPABASE_HEATMAP_URL if tipo == "heatmap" else SUPABASE_URL
-    if not destino or not SUPABASE_KEY:
-        return f"Destino de '{tipo}' no configurado."
+    if not ENTREGA_CONFIGURADA:
+        return "Entrega a la app no configurada (ver deploy/enrolar-cerebro.py)."
 
     headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
+        "X-Edge-Key-Id": LEANRETAIL_KEY_ID,
+        "Authorization": f"Bearer {LEANRETAIL_SECRET}",
     }
     try:
-        response = requests.post(destino, json=payload, headers=headers, timeout=10)
+        response = requests.post(
+            LEANRETAIL_INGEST_URL, json={"tipo": tipo, "payload": payload}, headers=headers, timeout=10
+        )
         if response.status_code == 409:
             # Ya estaba guardado: el reintento llegó después de un envío que sí
             # había funcionado. Es éxito, no error.
@@ -1580,8 +1581,8 @@ async def reloj_fotos_heatmap_background() -> None:
     reinicio: quien lea esto NO debe restar dos fotos de instancias distintas,
     daría negativo. La primera foto de una instancia nueva es una base.
     """
-    if not SUPABASE_HEATMAP_URL or not SUPABASE_KEY:
-        logger.info("Fotos del heatmap desactivadas (falta SUPABASE_HEATMAP_URL).")
+    if not ENTREGA_CONFIGURADA:
+        logger.info("Fotos del heatmap desactivadas (falta configurar la entrega a la app).")
         return
     loop = asyncio.get_running_loop()
     while True:
