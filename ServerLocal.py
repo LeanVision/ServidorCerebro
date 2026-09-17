@@ -203,7 +203,14 @@ TIEMPO_INACTIVIDAD_SEGUNDOS = 60.0
 #
 # El valor es un compromiso: más tiempo recuerda mejor, pero deja más
 # candidatos vivos y con eso más chances de fusionar a dos personas distintas.
-TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS = 900.0
+#
+# Subido de 15 a 30 min el 2026-09-17. Log de 3 días (14-17/09): 324 REGRESO
+# contra 43 NUEVO, y los 43 NUEVO sin ninguna identidad recordada; 38 regresos
+# volvieron tras más de 10 min y uno a los 901 s, pegado al límite. Quien sale
+# y vuelve después de 15 min se contaba como persona nueva. Para medir el
+# efecto: comparar la proporción NUEVO/REGRESO y buscar REGRESO con ausencia
+# mayor a 900 s; si aparecen IDs compartidos por dos personas, volver atrás.
+TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS = 1800.0
 TIEMPO_TRACKER_ACTIVO = 3.0
 DISTANCIA_REID_LOCAL_PX = 110.0
 TIEMPO_CONTINUIDAD_POSTURA = 30.0
