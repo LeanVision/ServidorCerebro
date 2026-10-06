@@ -1,0 +1,11 @@
+[Unit]
+Description=Corre cerebro-vigilante.service cada minuto
+
+[Timer]
+# Margen para que torch y OSNet terminen de cargar tras un arranque.
+OnBootSec=3min
+OnUnitActiveSec=1min
+Unit=cerebro-vigilante.service
+
+[Install]
+WantedBy=timers.target

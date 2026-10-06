@@ -1,0 +1,7 @@
+[Unit]
+Description=Vigila que LeanVision Cerebro responda en /health y lo reinicia si se cuelga
+
+[Service]
+Type=oneshot
+# Corre como root a propósito: necesita reiniciar cerebro.service sin sudo.
+ExecStart=/home/serverpruebas/leanvision/CerebroLocal/deploy/cerebro-vigilante.sh
