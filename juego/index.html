@@ -172,12 +172,45 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 #plan{width:min(100%,260px);max-width:100%;aspect-ratio:10/12;border:1px solid var(--line);border-radius:8px;background:#0e1517}
 .note{font-size:12px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Selector de cámaras */
+.camstrip{width:min(100%,calc((100vh - 440px) * 4 / 3));min-width:min(100%,520px);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.bezel,.toolbar{width:min(100%,calc((100vh - 440px) * 4 / 3))!important}
+@media (max-width:900px){.bezel,.toolbar,.camstrip{width:100%!important}}
+.cambtn{position:relative;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:4px;cursor:pointer;text-align:left;min-width:0}
+.cambtn canvas{width:100%;aspect-ratio:4/3;max-width:100%;border-radius:4px;background:#000;display:block}
+.cambtn .cl{font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:6px;padding:0 3px 1px;min-width:0}
+.cambtn .cl span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cambtn[aria-pressed="true"]{border-color:var(--amber);background:var(--raise)}
+.cambtn[aria-pressed="true"] .cl{color:var(--fg)}
+.cambtn em{font-style:normal;font-weight:600;font-family:var(--f-mono);font-size:10px;border-radius:4px;padding:1px 5px;flex:none}
+.cambtn em.warn{background:var(--amber);color:var(--ink)}
+.cambtn em.hack{background:var(--alert);color:#fff}
+.cambtn em.thief{background:transparent;color:var(--alert);border:1px solid var(--alert)}
+.cambtn.hacked{border-color:var(--alert);animation:pulse 1s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 3px rgba(255,90,82,.35)}}
+@media (max-width:560px){.cambtn .cl{font-size:10px}.cambtn .cl span b{display:none}}
+
+/* Cámara hackeada y reparación */
+.hackbtn{position:absolute;left:50%;bottom:10%;transform:translateX(-50%);z-index:6;border:0;border-radius:8px;padding:11px 18px;background:var(--alert);color:#fff;font-family:var(--f-display);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:14px;cursor:pointer;box-shadow:0 10px 30px -8px #000}
+.fix{position:absolute;inset:0;z-index:9;background:rgba(5,9,10,.95);display:flex;flex-direction:column;gap:8px;padding:12px}
+.fix header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.fix header div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.fix header b{font-family:var(--f-display);font-size:20px;color:var(--alert);letter-spacing:.04em}
+.fix header p{margin:0;font-size:12.5px;color:#c9d4d0}
+.fix header small{font-family:var(--f-mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+#fixCv{display:block;height:calc(100% - 64px);width:auto;max-width:100%;aspect-ratio:4/3;margin-inline:auto;border-radius:8px;border:1px solid var(--line);touch-action:none;cursor:pointer;background:#060b0c}
+@media (max-width:700px){
+  .fix{position:fixed;z-index:45;justify-content:center;background:var(--bg);padding-block:max(12px,env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-bottom,0px))}
+  #fixCv{width:100%;height:auto}
+}
+.t-hack{color:var(--amber)}
 </style>
 
 <div class="app">
   <header class="top">
     <div class="brand">
-      <span class="eyebrow"><b>●</b> LeanVision · CAM-01 · Salón principal</span>
+      <span class="eyebrow"><b>●</b> LeanVision · <span id="camLabel">CAM-01 · Salón principal</span></span>
       <h1>Cámara Lean Retail</h1>
     </div>
     <div class="hud" aria-live="off">
@@ -223,20 +256,30 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
             </div>
           </div>
 
+          <button class="hackbtn" id="hackBtn" hidden>Reparar cámara</button>
+
+          <div class="fix" id="fix" hidden>
+            <header>
+              <div><small id="fixCam">CAM-02 · Intrusión</small><b id="fixTitle">Reconectá los cables</b><p id="fixHint">Arrastrá cada cable al enchufe del mismo color.</p></div>
+              <button class="ghost" id="fixClose">Volver</button>
+            </header>
+            <canvas id="fixCv" width="640" height="480" aria-label="Minijuego de reparación"></canvas>
+          </div>
+
           <div class="overlay" id="intro">
             <div class="sheet">
-              <span class="eyebrow"><b>●</b> REC · CAM-01 · 4:3</span>
-              <h2>Sos la cámara del local.</h2>
-              <p>Durante el turno entran clientes, empleados y algún ladrón. Encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Antes de abrir, pintá las zonas del piso: lo que no detectás no aparece en tus datos.</p>
+              <span class="eyebrow"><b>●</b> REC · 3 cámaras · 4:3</span>
+              <h2>Sos las cámaras del local.</h2>
+              <p>Durante el turno entran clientes, empleados y algún ladrón. Encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Tenés tres cámaras: el salón, la caja y el depósito. Antes de abrir, pintá las zonas del piso: lo que no detectás no aparece en tus datos.</p>
               <ol class="steps">
                 <li>Pintá las zonas del local sobre el piso.</li>
-                <li>Arrastrá un recuadro sobre cada persona que entra.</li>
+                <li>Arrastrá un recuadro sobre cada persona que entra. Cambiá de cámara para ver todo.</li>
                 <li>Clasificala: género y cliente, empleado o ladrón.</li>
-                <li>Si marcás un ladrón entra la policía. Cuando lo alcanza, apretá la secuencia de flechas para esposarlo.</li>
-                <li>Al cierre, mirá tu reporte de tráfico por zona.</li>
+                <li>Si marcás un ladrón entra la policía. Cuando lo alcanza, apretá la secuencia de flechas.</li>
+                <li>Desde el turno 2 te hackean cámaras: reparalas con un minijuego.</li>
               </ol>
-              <p class="keys">Atajos: <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>D</kbd> detectar · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto. Tocá un recuadro para reclasificar.</p>
-              <div class="actions"><button class="primary" id="btnIntro">Encender cámara</button></div>
+              <p class="keys">Atajos: <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> o <kbd>V</kbd> cambiar cámara · <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>R</kbd> reparar · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto.</p>
+              <div class="actions"><button class="primary" id="btnIntro">Encender cámaras</button></div>
             </div>
           </div>
 
@@ -245,6 +288,8 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
           </div>
         </div>
       </div>
+
+      <div class="camstrip" id="camstrip" role="group" aria-label="Cámaras"></div>
 
       <div class="toolbar">
         <div class="seg" role="group" aria-label="Modo">
@@ -265,12 +310,12 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
       <section class="card">
         <h2>En vivo</h2>
         <div class="stats">
-          <div><span>En cámara</span><strong id="sIn">0</strong></div>
+          <div><span>En el local</span><strong id="sIn">0</strong></div>
           <div><span>Detectadas</span><strong id="sDet" class="good">0</strong></div>
           <div><span>Se fueron sin detectar</span><strong id="sMiss" class="bad">0</strong></div>
           <div><span>Ladrones detenidos</span><strong id="sThief">0 / 0</strong></div>
           <div><span>Precisión</span><strong id="sPrec">—</strong></div>
-          <div><span>IoU medio</span><strong id="sIou">—</strong></div>
+          <div><span>Cámaras OK</span><strong id="sCams">3 / 3</strong></div>
         </div>
       </section>
       <section class="card">
@@ -280,16 +325,17 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
       <section class="card">
         <h2>Guía de campo</h2>
         <ul class="guide">
-          <li><span class="tag t-emp">Empleado</span><span>Chaleco naranja con franja reflectiva. Cobra en la caja o repone mercadería con una caja de cartón.</span></li>
-          <li><span class="tag t-lad">Ladrón</span><span>Agarra productos sin canasto, mira a los costados, los esconde y sale sin pasar por la caja. Suele usar capucha, pero no siempre.</span></li>
-          <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van.</span></li>
-          <li><span class="tag t-pol">Policía</span><span>Entra cuando marcás a alguien como ladrón. Si lo alcanza, tenés unos segundos para la secuencia de flechas. Si fallás, se suelta y corre a la salida. Si era inocente, perdés puntos.</span></li>
+          <li><span class="tag t-emp">Empleado</span><span>Chaleco naranja con franja reflectiva. Cobra en la caja o trae mercadería del depósito en una caja de cartón.</span></li>
+          <li><span class="tag t-lad">Ladrón</span><span>Agarra productos sin canasto, mira a los costados, los esconde y sale sin pasar por la caja. Algunos se meten al depósito: mirá la CAM-03. Suele usar capucha, pero no siempre.</span></li>
+          <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van. Nunca entra al depósito.</span></li>
+          <li><span class="tag t-pol">Policía</span><span>Entra cuando marcás a alguien como ladrón. Si lo alcanza, tenés unos segundos para la secuencia de flechas. Si era inocente, perdés puntos.</span></li>
+          <li><span class="tag t-hack">Hackeo</span><span>Una cámara se llena de estática y no deja marcar. Repárala: conectar cables, matar bugs en el Cerebro o rearmar la imagen. Mientras tanto, seguí con las otras cámaras.</span></li>
           <li><span class="tag t-man">Maniquí</span><span>No se mueve, no tiene pelo y está sobre una base. No lo marques.</span></li>
         </ul>
       </section>
       <section class="card">
         <h2>Registro</h2>
-        <ul class="feed" id="feed"><li><span>--:--</span><em>Cámara en espera</em><span></span></li></ul>
+        <ul class="feed" id="feed"><li><span>--:--</span><em>Cámaras en espera</em><span></span></li></ul>
       </section>
     </aside>
   </main>
@@ -298,36 +344,78 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 <script>
 (() => {
 "use strict";
-// ───────────────────────── Constantes de escena
+const $ = id => document.getElementById(id);
+// ───────────────────────── Lienzo y cámaras
 const W = 960, H = 720;
 const DPR = Math.min(2, window.devicePixelRatio || 1);
-const cv = document.getElementById("cv");
+const cv = $("cv");
 cv.width = W * DPR; cv.height = H * DPR;
-const ctx = cv.getContext("2d");
-const setT = (a, b, c, d, e, f) => ctx.setTransform(a * DPR, b * DPR, c * DPR, d * DPR, e * DPR, f * DPR);
-const resetT = () => ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+const mainCtx = cv.getContext("2d");
+// ctx/SC/CAM apuntan a donde se está dibujando: la pantalla grande, una miniatura o la foto del rompecabezas.
+let ctx = mainCtx, SC = DPR;
+const setT = (a, b, c, d, e, f) => ctx.setTransform(a * SC, b * SC, c * SC, d * SC, e * SC, f * SC);
+const resetT = () => ctx.setTransform(SC, 0, 0, SC, 0, 0);
 
 const STORE = { w: 10, d: 12, h: 3.6 };
-const CAM = { x: 5.8, y: 3.35, z: -1.9, yaw: -10 * Math.PI / 180, pitch: 27 * Math.PI / 180, f: 540 };
-const cY = Math.cos(CAM.yaw), sY = Math.sin(CAM.yaw), cP = Math.cos(CAM.pitch), sP = Math.sin(CAM.pitch);
-function proj(x, y, z) {
-  const dx = x - CAM.x, dy = y - CAM.y, dz = z - CAM.z;
-  const x1 = dx * cY - dz * sY, z1 = dx * sY + dz * cY;
-  const yc = dy * cP + z1 * sP, zc = Math.max(0.05, z1 * cP - dy * sP);
-  return { x: W / 2 + CAM.f * x1 / zc, y: H / 2 - CAM.f * yc / zc, d: zc };
+const DEP = { x0: 6, x1: 10, z0: 12, z1: 16, h: 3.4 };
+const deg = Math.PI / 180;
+const lookAt = (c, tx, tz) => { c.yaw = Math.atan2(tx - c.x, tz - c.z); return c; };
+const CAMS = [
+  { id: 1, name: "Salón principal", short: "Salón", room: "salon", x: 5.8, y: 3.35, z: -1.9, yaw: -10 * deg, pitch: 27 * deg, f: 540 },
+  lookAt({ id: 2, name: "Caja y entrada", short: "Caja", room: "salon", x: 9.8, y: 3.35, z: 9.6, pitch: 30 * deg, f: 480 }, 3.2, 2.4),
+  lookAt({ id: 3, name: "Depósito", short: "Depósito", room: "dep", x: 6.2, y: 3.1, z: 15.8, pitch: 33 * deg, f: 400 }, 9.2, 12.8),
+];
+for (const c of CAMS) {
+  c.cY = Math.cos(c.yaw); c.sY = Math.sin(c.yaw); c.cP = Math.cos(c.pitch); c.sP = Math.sin(c.pitch);
+  c.fwd = { x: c.sY, z: c.cY }; c.right = { x: c.cY, z: -c.sY }; c.hacked = null;
 }
+let CAM = CAMS[0], curCam = CAMS[0];
+const camTag = c => `CAM-0${c.id}`;
+
+function camSpace(c, x, y, z) {
+  const dx = x - c.x, dy = y - c.y, dz = z - c.z;
+  const x1 = dx * c.cY - dz * c.sY, z1 = dx * c.sY + dz * c.cY;
+  return [x1, dy * c.cP + z1 * c.sP, z1 * c.cP - dy * c.sP];
+}
+const toScreen = (c, q) => ({ x: W / 2 + c.f * q[0] / q[2], y: H / 2 - c.f * q[1] / q[2], d: q[2] });
+function projWith(c, x, y, z) { const q = camSpace(c, x, y, z), d = q[2]; q[2] = Math.max(.05, d); const s = toScreen(c, q); s.d = d; return s; }
+const proj = (x, y, z) => projWith(CAM, x, y, z);
+const P = proj;
 function unproj(sx, sy) {
-  const u = (sx - W / 2) / CAM.f, v = -(sy - H / 2) / CAM.f;
-  const y1 = v * cP - sP, z1 = v * sP + cP, x1 = u;
-  const dx = x1 * cY + z1 * sY, dz = -x1 * sY + z1 * cY;
+  const c = CAM, u = (sx - W / 2) / c.f, v = -(sy - H / 2) / c.f;
+  const y1 = v * c.cP - c.sP, z1 = v * c.sP + c.cP, x1 = u;
+  const dx = x1 * c.cY + z1 * c.sY, dz = -x1 * c.sY + z1 * c.cY;
   if (y1 >= -1e-4) return null;
-  const t = -CAM.y / y1;
-  return { x: CAM.x + t * dx, z: CAM.z + t * dz };
+  const t = -c.y / y1;
+  return { x: c.x + t * dx, z: c.z + t * dz };
+}
+// Recorte contra el plano cercano: sin esto, lo que queda detrás de la cámara se proyecta dado vuelta.
+const NEAR = .12;
+function clipPoly(pts) {
+  const cs = pts.map(p => camSpace(CAM, p[0], p[1], p[2])), out = [];
+  for (let i = 0; i < cs.length; i++) {
+    const a = cs[i], b = cs[(i + 1) % cs.length], ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+    if (ain) out.push(a);
+    if (ain !== bin) { const t = (NEAR - a[2]) / (b[2] - a[2]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]); }
+  }
+  return out.map(q => toScreen(CAM, q));
+}
+const quad = (a, b, c, d) => clipPoly([a, b, c, d]);
+function seg3(a, b) {
+  let A = camSpace(CAM, ...a), B = camSpace(CAM, ...b);
+  if (A[2] < NEAR && B[2] < NEAR) return;
+  if (A[2] < NEAR || B[2] < NEAR) {
+    const t = (NEAR - A[2]) / (B[2] - A[2]), m = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, NEAR];
+    if (A[2] < NEAR) A = m; else B = m;
+  }
+  const p = toScreen(CAM, A), q = toScreen(CAM, B);
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
 }
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const fmtClock = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`; };
 
 // ───────────────────────── Zonas (grilla de 0,5 m, igual que el Cerebro)
@@ -368,6 +456,10 @@ const RACK = { x0: 6.6, x1: 8.6, z: 11.15 };
 const ISLAND = { x0: 3.4, x1: 5.2, z0: 1.0, z1: 1.9, h: .75 };
 const ISLAND_ITEMS = Array.from({ length: 10 }, (_, i) => ({ x: ISLAND.x0 + .12 + (i % 5) * .34, z: ISLAND.z0 + .15 + Math.floor(i / 5) * .38, c: PROD_COLORS[(i * 4) % PROD_COLORS.length] }));
 const MANNEQUIN_POS = { x: 0.75, z: 8.4 };
+// Depósito
+const PALLET = { x0: 7.3, x1: 8.4, z0: 13.6, z1: 14.7 };
+const SERVER = { x0: 6.1, x1: 6.75, z0: 12.5, z1: 13.15, h: 1.95 };
+const DRACKS = [{ x0: 6.95, x1: 8.4, z0: 12.05, z1: 12.55, h: 2.1 }, { x0: 9.45, x1: 9.95, z0: 14.95, z1: 15.95, h: 2.1 }];
 let products = [];
 function resetProducts() {
   products = [];
@@ -377,14 +469,37 @@ function resetProducts() {
 }
 const productsAt = (s, g, side) => products.filter(p => p.s === s && p.g === g && p.side === side);
 
+// ───────────────────────── Salas y aberturas
+function roomOf(x, z) {
+  if (z >= DEP.z0) return x >= DEP.x0 && x <= DEP.x1 && z <= DEP.z1 ? "dep" : "outD";
+  return x >= 0 && x <= STORE.w ? "salon" : "outF";
+}
+const PORTALS = {
+  main: [[0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]],
+  staff: [[8.65, 0, 12], [9.75, 0, 12], [9.75, 2.2, 12], [8.65, 2.2, 12]],
+  dock: [[10, 0, 13.3], [10, 0, 14.7], [10, 2.4, 14.7], [10, 2.4, 13.3]],
+};
+function portalFor(camRoom, room) {
+  if (camRoom === room) return "same";
+  if (camRoom === "salon") return room === "outF" ? "main" : room === "dep" ? "staff" : null;
+  return room === "salon" ? "staff" : room === "outD" ? "dock" : null;
+}
+function inView(c, p) {
+  if (roomOf(p.x, p.z) !== c.room) return false;
+  const f = projWith(c, p.x, 0, p.z); if (f.d < .6) return false;
+  const t = projWith(c, p.x, p.h, p.z);
+  return f.x > -30 && f.x < W + 30 && t.y < H - 10 && f.y > 20;
+}
+
 // ───────────────────────── Navegación
 const N = {
   OUT: [-1.4, 4], DOOR: [0.45, 4], F1: [1.5, 4], F2: [4.0, 4], F3: [6.4, 4], PAY: [7.05, 4],
   B1: [1.5, 10.65], B2: [4.0, 10.65], B3: [6.4, 10.65], R: [8.6, 10.65],
-  S: [9.2, 10.65], SD: [9.2, 11.8], SOUT: [9.2, 12.9], CASH: [9.0, 4.0],
+  S: [9.2, 10.65], SD: [9.2, 11.8], CASH: [9.0, 4.0],
+  DIN: [9.2, 12.7], DC: [9.2, 14.0], DOUT: [11.2, 14.0],
 };
 const EDGES = [["OUT", "DOOR"], ["DOOR", "F1"], ["F1", "F2"], ["F2", "F3"], ["F3", "PAY"], ["F1", "B1"], ["F2", "B2"], ["F3", "B3"],
-  ["B1", "B2"], ["B2", "B3"], ["B3", "R"], ["R", "S"], ["S", "SD"], ["SD", "SOUT"], ["S", "CASH"]];
+  ["B1", "B2"], ["B2", "B3"], ["B3", "R"], ["R", "S"], ["S", "SD"], ["S", "CASH"], ["SD", "DIN"], ["DIN", "DC"], ["DC", "DOUT"]];
 const ADJ = {};
 for (const k in N) ADJ[k] = [];
 for (const [a, b] of EDGES) { const d = Math.hypot(N[a][0] - N[b][0], N[a][1] - N[b][1]); ADJ[a].push([b, d]); ADJ[b].push([a, d]); }
@@ -417,7 +532,6 @@ function route(from, to) {
   if (!to.node) pts.push(tx);
   return pts;
 }
-// Puntos de interés
 const AISLES = [
   { x: 1.5, anchors: ["F1", "B1"], faces: [{ s: 0, side: 0, dir: 1 }] },
   { x: 4.0, anchors: ["F2", "B2"], faces: [{ s: 0, side: 1, dir: -1 }, { s: 1, side: 0, dir: 1 }] },
@@ -425,7 +539,7 @@ const AISLES = [
 ];
 function aislePOI(prefer) {
   const a = pick(AISLES), f = pick(a.faces);
-  let g = Math.floor(Math.random() * NSEG);
+  const g = Math.floor(Math.random() * NSEG);
   if (prefer) { // empleados: buscar el tramo con más faltantes
     let bestMiss = -1;
     for (const A of AISLES) for (const F of A.faces) for (let gg = 0; gg < NSEG; gg++) {
@@ -436,8 +550,9 @@ function aislePOI(prefer) {
   }
   return { x: a.x + f.dir * 0.15, z: SEG_Z0 + (g + rnd(.25, .75)) * SEG_L, anchors: a.anchors, face: f, seg: g, look: f.dir };
 }
-const rackPOI = () => ({ x: rnd(6.8, 8.3), z: 10.65, anchors: ["B3", "R"], look: 0, back: true });
-const probPOI = () => ({ x: rnd(1.7, 3.1), z: 10.65, anchors: ["B1", "B2"], look: 0, back: true });
+const rackPOI = () => ({ x: rnd(6.8, 8.3), z: 10.65, anchors: ["B3", "R"], back: true });
+const probPOI = () => ({ x: rnd(1.7, 3.1), z: 10.65, anchors: ["B1", "B2"], back: true });
+const depotPOI = () => ({ x: 8.8, z: rnd(13.9, 14.4), anchors: ["DIN", "DC"], look: -1, depot: true });
 const PAY_SLOTS = [3.25, 4.0, 4.75];
 function payPOI() {
   const used = people.filter(p => p.paySlot != null).map(p => p.paySlot);
@@ -448,14 +563,14 @@ function payPOI() {
 
 // ───────────────────────── Niveles
 const LEVELS = [
-  { name: "Apertura", start: 9 * 3600, dur: 90, spawn: [4.5, 7.5], thieves: 1, restock: 1, maxIn: 6, hoodDecoy: 0, thiefBare: 0, flicker: 0 },
-  { name: "Mediodía", start: 13 * 3600, dur: 100, spawn: [3.2, 5.5], thieves: 2, restock: 1, maxIn: 8, hoodDecoy: .15, thiefBare: .25, flicker: 0 },
-  { name: "Hora pico", start: 18.5 * 3600, dur: 120, spawn: [2, 3.8], thieves: 3, restock: 2, maxIn: 12, hoodDecoy: .25, thiefBare: .4, flicker: .6 },
+  { name: "Apertura", start: 9 * 3600, dur: 90, spawn: [4.5, 7.5], thieves: 1, restock: 1, maxIn: 6, hoodDecoy: 0, thiefBare: 0, depThief: 0, hacks: 0, flicker: 0 },
+  { name: "Mediodía", start: 13 * 3600, dur: 110, spawn: [3.2, 5.5], thieves: 2, restock: 2, maxIn: 8, hoodDecoy: .15, thiefBare: .25, depThief: .5, hacks: 1, flicker: 0 },
+  { name: "Hora pico", start: 18.5 * 3600, dur: 130, spawn: [2, 3.8], thieves: 3, restock: 2, maxIn: 12, hoodDecoy: .25, thiefBare: .4, depThief: .4, hacks: 2, flicker: .6 },
 ];
 function levelCfg(i) {
   if (i < LEVELS.length) return LEVELS[i];
   const k = i - LEVELS.length + 1, b = LEVELS[LEVELS.length - 1];
-  return { ...b, name: `Liquidación ${k}`, spawn: [Math.max(1.2, b.spawn[0] - .3 * k), Math.max(2, b.spawn[1] - .4 * k)], thieves: b.thieves + k, maxIn: b.maxIn + 2 * k };
+  return { ...b, name: `Liquidación ${k}`, spawn: [Math.max(1.2, b.spawn[0] - .3 * k), Math.max(2, b.spawn[1] - .4 * k)], thieves: b.thieves + k, maxIn: b.maxIn + 2 * k, hacks: b.hacks + k };
 }
 
 // ───────────────────────── Personas
@@ -492,38 +607,40 @@ function spawnPerson(role, opts = {}) {
     h: gender === "H" ? rnd(1.70, 1.88) : rnd(1.58, 1.74),
     x: 0, z: 0, speed: role === "ladron" ? rnd(1.0, 1.15) : rnd(.8, 1.0),
     wp: [], tasks: [], task: null, tt: 0, phase: Math.random() * 6, moving: false,
-    faceBack: false, lookDir: 0, headTurn: 0, anim: null, animT: 0,
+    fx: 0, fz: -1, headTurn: 0, anim: null,
     basket: false, basketItems: 0, bag: false, box: false, handItem: null, stolen: 0,
-    track: null, hist: [], zoneTime: {}, place: null, born: game.t, paySlot: null, clip: null,
+    track: null, hist: [], zoneTime: {}, place: null, born: game.t, paySlot: null,
   };
   if (role === "cliente") p.basket = Math.random() < .6;
   if (opts.cashier) {
-    p.cashier = true; p.place = { node: "CASH" }; p.x = N.CASH[0]; p.z = N.CASH[1];
+    p.cashier = true; p.place = { node: "CASH" }; p.x = N.CASH[0]; p.z = N.CASH[1]; p.fx = -1; p.fz = 0;
     p.tasks.push({ k: "idle" });
   } else if (role === "empleado") {
-    p.place = { node: "SOUT" }; p.x = N.SOUT[0]; p.z = N.SOUT[1]; p.box = true;
-    const n = 2;
-    for (let i = 0; i < n; i++) { p.tasks.push({ k: "go", to: () => aislePOI(true) }); p.tasks.push({ k: "stock" }); }
-    p.tasks.push({ k: "go", to: () => ({ node: "SOUT" }) }); p.tasks.push({ k: "leave" });
+    // entra por el portón de carga del depósito, busca mercadería y repone
+    p.place = { node: "DOUT" }; p.x = N.DOUT[0]; p.z = N.DOUT[1];
+    p.tasks.push({ k: "go", to: depotPOI }, { k: "pickup" });
+    for (let i = 0; i < 2; i++) p.tasks.push({ k: "go", to: () => aislePOI(true) }, { k: "stock" });
+    p.tasks.push({ k: "go", to: () => ({ node: "DOUT" }) }, { k: "leave" });
   } else {
     p.place = { node: "OUT" }; p.x = N.OUT[0]; p.z = N.OUT[1];
     if (role === "ladron") {
-      if (Math.random() < .5) { p.tasks.push({ k: "go", to: () => Math.random() < .5 ? rackPOI() : aislePOI() }); p.tasks.push({ k: "wait", t: rnd(1.5, 3), anim: "browse" }); }
-      p.tasks.push({ k: "go", to: aislePOI }); p.tasks.push({ k: "wait", t: rnd(1.6, 2.6), anim: "nervous" });
-      p.tasks.push({ k: "grab", mode: "hide" });
-      if (Math.random() < .5) { p.tasks.push({ k: "go", to: aislePOI }); p.tasks.push({ k: "wait", t: 1.2, anim: "nervous" }); p.tasks.push({ k: "grab", mode: "hide" }); }
-      p.tasks.push({ k: "hurry" });
-      p.tasks.push({ k: "go", to: () => ({ node: "OUT" }) }); p.tasks.push({ k: "leave" });
+      if (Math.random() < .5) p.tasks.push({ k: "go", to: () => Math.random() < .5 ? rackPOI() : aislePOI() }, { k: "wait", t: rnd(1.5, 3), anim: "browse" });
+      if (opts.depot) {
+        p.tasks.push({ k: "go", to: depotPOI }, { k: "wait", t: rnd(1.2, 2), anim: "nervous" }, { k: "grab", mode: "hide" }, { k: "grab", mode: "hide" });
+      } else {
+        p.tasks.push({ k: "go", to: aislePOI }, { k: "wait", t: rnd(1.6, 2.6), anim: "nervous" }, { k: "grab", mode: "hide" });
+        if (Math.random() < .5) p.tasks.push({ k: "go", to: aislePOI }, { k: "wait", t: 1.2, anim: "nervous" }, { k: "grab", mode: "hide" });
+      }
+      p.tasks.push({ k: "hurry" }, { k: "go", to: () => ({ node: "OUT" }) }, { k: "leave" });
     } else {
       const stops = 1 + Math.floor(Math.random() * 3);
       for (let i = 0; i < stops; i++) {
         const r = Math.random();
         const poi = r < .7 ? aislePOI : r < .85 ? rackPOI : probPOI;
-        p.tasks.push({ k: "go", to: poi }); p.tasks.push({ k: "wait", t: rnd(1.8, 4.5), anim: "browse" });
+        p.tasks.push({ k: "go", to: poi }, { k: "wait", t: rnd(1.8, 4.5), anim: "browse" });
         if (p.basket && poi === aislePOI && Math.random() < .75) p.tasks.push({ k: "grab", mode: "basket" });
       }
-      p.tasks.push({ k: "checkout" });
-      p.tasks.push({ k: "go", to: () => ({ node: "OUT" }) }); p.tasks.push({ k: "leave" });
+      p.tasks.push({ k: "checkout" }, { k: "go", to: () => ({ node: "OUT" }) }, { k: "leave" });
     }
   }
   people.push(p);
@@ -551,12 +668,14 @@ function startTask(p) {
   } else if (T.k === "hurry") { p.speed = 1.45; p.task = null; }
   else if (T.k === "grab") { p.anim = "reach"; T.t = 1.1; }
   else if (T.k === "stock") { p.anim = "stock"; T.t = 3.5; }
+  else if (T.k === "pickup") { p.anim = "stock"; T.t = 1.6; }
 }
 
 function faceProducts(p) {
   const pl = p.place; if (!pl || !pl.face) return [];
   return productsAt(pl.face.s, pl.seg, pl.face.side);
 }
+function setFacing(p, dx, dz) { const d = Math.hypot(dx, dz); if (d > 1e-3) { p.fx = dx / d; p.fz = dz / d; } }
 
 function updatePerson(p, dt) {
   p.hist.push({ t: game.t, b: personBox(p) });
@@ -564,10 +683,10 @@ function updatePerson(p, dt) {
   if (p.cuffed) { p.headTurn = 0; return; }
   if (p.wp.length) {
     const w = p.wp[0], dx = w.x - p.x, dz = w.z - p.z, d = Math.hypot(dx, dz), step = p.speed * dt;
+    setFacing(p, dx, dz);
     if (d <= step) { p.x = w.x; p.z = w.z; p.wp.shift(); if (!p.wp.length) { p.place = p.target; p.task = null; } }
     else { p.x += dx / d * step; p.z += dz / d * step; }
     p.moving = true; p.phase += dt * p.speed * 7.5;
-    if (Math.abs(dz) > .02) p.faceBack = dz > 0;
     p.headTurn += (0 - p.headTurn) * Math.min(1, dt * 6);
     return;
   }
@@ -575,11 +694,11 @@ function updatePerson(p, dt) {
   if (!p.task) { startTask(p); return; }
   const T = p.task; p.tt += dt;
   const pl = p.place || {};
-  if (pl.back) p.faceBack = true; else if (pl.look) p.faceBack = false;
+  if (pl.back) setFacing(p, 0, 1); else if (pl.look) setFacing(p, pl.look, 0);
   const lookTarget = pl.look || 0;
   if (T.k === "idle") {
     p.headTurn = Math.sin(game.t * .7 + p.id) * .5;
-    if (p.cashier) p.faceBack = false;
+    if (p.cashier) setFacing(p, -1, 0);
     return;
   }
   if (T.k === "wait") {
@@ -591,16 +710,22 @@ function updatePerson(p, dt) {
     p.headTurn = T.mode === "hide" ? Math.sin(p.tt * 7) * 1.1 : lookTarget * .8;
     if (!T.done && p.tt > .45) {
       T.done = true;
-      const avail = faceProducts(p).filter(x => x.present);
-      if (avail.length) {
-        const it = pick(avail); it.present = false; p.handItem = it.color;
-        if (T.mode === "hide") { p.stolen++; }
+      if (pl.depot) { p.handItem = pick(["#b98b55", "#c99b65", "#a87c4a"]); if (T.mode === "hide") p.stolen++; }
+      else {
+        const avail = faceProducts(p).filter(x => x.present);
+        if (avail.length) {
+          const it = pick(avail); it.present = false; p.handItem = it.color;
+          if (T.mode === "hide") p.stolen++;
+        }
       }
     }
     if (p.tt > .85 && p.handItem) {
       if (T.mode === "basket") p.basketItems++;
       p.handItem = null;
     }
+    if (p.tt >= T.t) { p.task = null; p.anim = null; }
+  } else if (T.k === "pickup") {
+    if (p.tt > .8) p.box = true;
     if (p.tt >= T.t) { p.task = null; p.anim = null; }
   } else if (T.k === "stock") {
     p.headTurn = lookTarget * .8;
@@ -615,7 +740,7 @@ function updatePerson(p, dt) {
   }
 }
 
-// Caja de verdad (en px de pantalla) que se usa para el IoU.
+// Caja de verdad (en px de pantalla de la cámara actual) que se usa para el IoU.
 function personBox(p) {
   const f = proj(p.x, 0, p.z), t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
   return { x: f.x - 23 * s, y: f.y - 172 * s, w: 46 * s, h: 175 * s };
@@ -625,41 +750,41 @@ function iou(a, b) {
   const i = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
   return i / (a.w * a.h + b.w * b.h - i || 1);
 }
-function mannequinBox() {
-  const p = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78 };
-  return personBox(p);
-}
+const mannequin = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78, look: { skin: "#e6e2da", hair: "#e6e2da", hairStyle: "none", shirt: "#e6e2da", pants: "#e6e2da", dress: "#2f4f6f", shoes: "#e6e2da" }, fx: 1, fz: 0, moving: false, headTurn: .6, phase: 0, anim: null, gender: "M" };
+const mannequinBox = () => personBox(mannequin);
 
 // ───────────────────────── Estado del juego
 const game = {
   state: "intro", level: 0, t: 0, score: 0, levelScore: 0, best: 0, mode: "detect", label: 0, brush: 1, erase: false, heat: false,
-  stats: null, spawnIn: 2, thiefTimes: [], restockTimes: [], heatGrid: new Float32Array(COLS * ROWS), paused: false,
+  stats: null, spawnIn: 2, thiefTimes: [], restockTimes: [], hackTimes: [], hackN: 0, heatGrid: new Float32Array(COLS * ROWS), paused: false, qte: null,
 };
 try { game.best = +localStorage.getItem("lv-camara-best") || 0; } catch (e) { }
 function freshStats() {
-  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, escaped: 0, robbed: 0, falseAcc: 0, missed: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
+  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, escaped: 0, robbed: 0, falseAcc: 0, missed: 0, hacks: 0, repaired: 0, downTime: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
 }
 
 function setupLevel() {
   const cfg = levelCfg(game.level);
-  people = []; cops = []; floats = []; resetProducts();
+  people = []; cops = []; floats = []; flashes = []; resetProducts();
   game.qte = null; qteEl.hidden = true;
+  for (const c of CAMS) c.hacked = null;
+  closeFix();
   game.t = 0; game.levelScore = 0; game.stats = freshStats(); game.heatGrid.fill(0);
   game.spawnIn = 1.5;
-  game.thiefTimes = Array.from({ length: cfg.thieves }, (_, i) => 12 + (cfg.dur - 45) * (i + Math.random() * .8) / cfg.thieves).sort((a, b) => a - b);
-  game.restockTimes = Array.from({ length: cfg.restock }, (_, i) => 20 + (cfg.dur - 50) * (i + Math.random() * .6) / cfg.restock);
-  // algunos huecos de mercadería para que los repositores tengan trabajo
+  game.thiefTimes = Array.from({ length: cfg.thieves }, (_, i) => ({ t: 12 + (cfg.dur - 45) * (i + Math.random() * .8) / cfg.thieves, depot: Math.random() < cfg.depThief })).sort((a, b) => a.t - b.t);
+  game.restockTimes = Array.from({ length: cfg.restock }, (_, i) => 8 + (cfg.dur - 50) * (i + Math.random() * .6) / cfg.restock);
+  game.hackTimes = Array.from({ length: cfg.hacks }, (_, i) => 22 + (cfg.dur - 50) * (i + Math.random() * .7) / Math.max(1, cfg.hacks));
   for (const it of products) if (Math.random() < .08) it.present = false;
   spawnPerson("empleado", { cashier: true });
   closePopup();
   logEvent(`Turno ${game.level + 1} · ${cfg.name}`, "", "");
-  updateHud(); renderMissions();
+  updateHud(); renderMissions(); syncHackUi();
 }
 
 function scorePoints(n, kind) {
   game.score += n; game.levelScore += n;
   if (kind) game.stats[kind] += n;
-  const el = document.getElementById("hudScore");
+  const el = $("hudScore");
   el.classList.remove("bump", "drop"); void el.offsetWidth; el.classList.add(n >= 0 ? "bump" : "drop");
   clearTimeout(scorePoints.t); scorePoints.t = setTimeout(() => el.classList.remove("bump", "drop"), 600);
 }
@@ -674,7 +799,6 @@ function settle(p, atEnd) {
     }
   }
   if (p.cuffed) return; // ya se puntuó al esposarlo
-  const where = atEnd ? null : p;
   if (!p.track) {
     S.missed++; scorePoints(-40, "penScore");
     floatAtDoor(p, "SE FUE SIN DETECTAR −40", "#ff5a52");
@@ -686,15 +810,15 @@ function settle(p, atEnd) {
   if (truth === "ladron") {
     if (g === "ladron") {
       S.tOK++; S.tTot++;
-      if (atEnd) logEvent(`ID ${p.track.id} marcado, sin detener`, "", "");
+      if (atEnd) logEvent(`ID ${idStr(p)} marcado, sin detener`, "", "");
       else {
         S.escaped++; if (p.stolen) S.robbed++; scorePoints(-150, "penScore");
-        floatAtDoor(p, "SE ESCAPÓ −150", "#ff5a52"); logEvent(`ID ${p.track.id} se escapó`, "−150", "n");
+        floatAtDoor(p, "SE ESCAPÓ −150", "#ff5a52"); logEvent(`ID ${idStr(p)} se escapó`, "−150", "n");
       }
     } else if (p.stolen) {
       S.robbed++; S.tTot++; scorePoints(-150, "penScore");
-      floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52"); logEvent(`ID ${p.track.id} era ladrón`, "−150", "n");
-    } else if (g) { S.tTot++; scorePoints(-30, "penScore"); logEvent(`ID ${p.track.id} era ladrón`, "−30", "n"); }
+      floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52"); logEvent(`ID ${idStr(p)} era ladrón`, "−150", "n");
+    } else if (g) { S.tTot++; scorePoints(-30, "penScore"); logEvent(`ID ${idStr(p)} era ladrón`, "−30", "n"); }
     return;
   }
   if (p.checked) return; // la policía ya lo revisó y se cobró la acusación
@@ -702,7 +826,7 @@ function settle(p, atEnd) {
   S.tTot++;
   if (g === "ladron") {
     S.falseAcc++; scorePoints(-120, "penScore");
-    floatAtDoor(p, "ACUSACIÓN FALSA −120", "#ff5a52"); logEvent(`ID ${p.track.id} era ${truth}`, "−120", "n");
+    floatAtDoor(p, "ACUSACIÓN FALSA −120", "#ff5a52"); logEvent(`ID ${idStr(p)} era ${truth}`, "−120", "n");
   } else if (g === truth) {
     S.tOK++; const n = truth === "empleado" ? 40 : 15; scorePoints(n, "clsScore");
     if (!atEnd) floatAtDoor(p, `${truth.toUpperCase()} ✓ +${n}`, truth === "empleado" ? "#52c7ff" : "#43e08a");
@@ -711,17 +835,23 @@ function settle(p, atEnd) {
   }
 }
 
-// ───────────────────────── Textos flotantes
-let floats = [];
-function floatText(p, txt, color, dy = 0) { const b = personBox(p); floats.push({ x: b.x + b.w / 2, y: b.y - 10 - dy, txt, color, t: 0 }); }
+// ───────────────────────── Textos flotantes (en la pantalla de la cámara activa)
+let floats = [], flashes = [];
+function floatText(p, txt, color, dy = 0) {
+  if (!inView(curCam, p)) return;
+  const b = personBox(p); floats.push({ x: b.x + b.w / 2, y: b.y - 10 - dy, txt, color, t: 0 });
+}
 function floatAt(x, y, txt, color) { floats.push({ x, y, txt, color, t: 0 }); }
 function floatAtDoor(p, txt, color, dy = 0) {
-  if (p.x < 1.2 || p.z > 11.5) { const d = proj(p.x < 1.2 ? 0.3 : p.x, 2.0, p.x < 1.2 ? 4 : 11.6); floatAt(d.x + (p.x < 1.2 ? 70 : 0), d.y - dy, txt, color); }
-  else floatText(p, txt, color, dy);
+  const room = roomOf(p.x, p.z);
+  if (room === "outF" && curCam.room === "salon") {
+    const d = proj(0.3, 2.0, 4); if (d.d > .5 && d.x > -50 && d.x < W + 50) floatAt(clamp(d.x + 70, 140, W - 140), d.y - dy, txt, color);
+  } else floatText(p, txt, color, dy);
 }
+function flashBox(b, color) { flashes.push({ b, color, t: 0 }); }
 
 // ───────────────────────── Registro
-const feedEl = document.getElementById("feed");
+const feedEl = $("feed");
 function logEvent(txt, pts, cls) {
   const cfg = levelCfg(game.level);
   const li = document.createElement("li");
@@ -738,8 +868,9 @@ function canvasPt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clie
 cv.addEventListener("pointerdown", e => {
   if (game.state !== "play" && game.state !== "setup") return;
   if (game.paused) return;
-  cv.setPointerCapture(e.pointerId);
   const pt = canvasPt(e);
+  if (curCam.hacked) { floatAt(pt.x, pt.y, "SIN SEÑAL · REPARÁ LA CÁMARA", "#ff5a52"); return; }
+  cv.setPointerCapture(e.pointerId);
   if (game.mode === "zones") { drag = { zone: true }; paintAt(pt); return; }
   if (game.state !== "play") return;
   drag = { x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y, t0: game.t };
@@ -750,7 +881,7 @@ cv.addEventListener("pointermove", e => {
   if (drag.zone) { paintAt(pt); return; }
   drag.x1 = pt.x; drag.y1 = pt.y;
 });
-const endDrag = () => {
+cv.addEventListener("pointerup", () => {
   if (!drag) return;
   const d = drag; drag = null;
   if (d.zone) { renderMissions(); saveHot(); return; }
@@ -758,13 +889,12 @@ const endDrag = () => {
   if (box.w < 10 && box.h < 10) { clickAt(d.x0, d.y0); return; }
   if (box.w < 10 || box.h < 18) return;
   evaluateBox(box, d.t0);
-};
-cv.addEventListener("pointerup", endDrag);
+});
 cv.addEventListener("pointercancel", () => { drag = null; });
 
 function clickAt(x, y) {
   let hit = null, hd = Infinity;
-  for (const p of people) if (p.track) {
+  for (const p of people) if (p.track && inView(curCam, p)) {
     const b = personBox(p);
     if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { const d = proj(p.x, 0, p.z).d; if (d < hd) { hd = d; hit = p; } }
   }
@@ -775,15 +905,15 @@ function evaluateBox(box, t0) {
   const S = game.stats;
   let best = null, bestIoU = 0;
   for (const p of people) {
-    if (p.x < -0.1 || p.z > 12) continue; // todavía afuera
+    if (!inView(curCam, p)) continue;
     let m = 0;
     for (const h of p.hist) if (h.t >= t0 - .15) m = Math.max(m, iou(box, h.b));
     m = Math.max(m, iou(box, personBox(p)));
     if (m > bestIoU) { bestIoU = m; best = p; }
   }
-  for (const c of cops) if (iou(box, personBox(c)) > .4) { floatAt(box.x + box.w / 2, box.y - 8, "ES EL POLICÍA", "#7fa8ff"); return; }
-  const mIoU = iou(box, mannequinBox());
   const cx = box.x + box.w / 2, cy = box.y;
+  for (const c of cops) if (inView(curCam, c) && iou(box, personBox(c)) > .4) { floatAt(cx, cy - 8, "ES EL POLICÍA", "#7fa8ff"); return; }
+  const mIoU = curCam.room === "salon" ? iou(box, mannequinBox()) : 0;
   if (mIoU > .3 && mIoU >= bestIoU) {
     S.mannequin++; scorePoints(-50, "penScore");
     floatAt(cx, cy - 8, "ES UN MANIQUÍ −50", "#ffb547"); logEvent("Marcaste el maniquí", "−50", "n");
@@ -796,27 +926,26 @@ function evaluateBox(box, t0) {
   }
   if (best.track) {
     S.dup++; scorePoints(-10, "penScore");
-    floatAt(cx, cy - 8, `YA ES ID ${String(best.track.id).padStart(2, "0")} −10`, "#ffb547");
+    floatAt(cx, cy - 8, `YA ES ID ${idStr(best)} −10`, "#ffb547");
     flashBox(box, "#ffb547"); return;
   }
   const pts = bestIoU >= .75 ? 100 : bestIoU >= .58 ? 70 : 40;
   const word = bestIoU >= .75 ? "PERFECTO" : bestIoU >= .58 ? "MUY BIEN" : "BIEN";
   S.tp++; S.ious.push(bestIoU); scorePoints(pts, "detScore");
-  best.track = { id: trackSeq++, gender: null, type: null, born: game.t };
+  best.track = { id: trackSeq++, gender: null, type: null, born: game.t, cam: curCam.id };
   floatText(best, `${word} · IoU ${bestIoU.toFixed(2)} +${pts}`, "#43e08a");
-  logEvent(`ID ${String(best.track.id).padStart(2, "0")} detectado`, `+${pts}`, "p");
+  logEvent(`ID ${idStr(best)} detectado en ${camTag(curCam)}`, `+${pts}`, "p");
   openPopup(best);
 }
-let flashes = [];
-function flashBox(b, color) { flashes.push({ b, color, t: 0 }); }
 
 // ───────────────────────── Popup de clasificación
-const pop = document.getElementById("pop");
+const pop = $("pop");
 let popFor = null, popCloseTimer = null;
+const idStr = p => String(p.track.id).padStart(2, "0");
 function openPopup(p) {
   if (p.cuffed) return;
   popFor = p; clearTimeout(popCloseTimer);
-  document.getElementById("popTitle").textContent = `ID ${String(p.track.id).padStart(2, "0")} · CLASIFICAR`;
+  $("popTitle").textContent = `ID ${idStr(p)} · CLASIFICAR`;
   syncPopup(); pop.hidden = false; placePopup();
 }
 function closePopup() { popFor = null; pop.hidden = true; clearTimeout(popCloseTimer); }
@@ -828,6 +957,7 @@ function syncPopup() {
 }
 function placePopup() {
   if (!popFor) return;
+  if (!inView(curCam, popFor)) { closePopup(); return; }
   const r = cv.getBoundingClientRect(), k = r.width / W, b = personBox(popFor);
   const pw = pop.offsetWidth || 220, ph = pop.offsetHeight || 140;
   let left = (b.x + b.w) * k + 10, top = b.y * k;
@@ -845,7 +975,7 @@ function chooseGender(g) {
 function chooseType(t) {
   const p = popFor; if (!p) return;
   p.track.type = t; syncPopup();
-  if (t === "ladron") { logEvent(`ID ${String(p.track.id).padStart(2, "0")} marcado como ladrón`, "", "n"); callPolice(p); }
+  if (t === "ladron") { logEvent(`ID ${idStr(p)} marcado como ladrón`, "", "n"); callPolice(p); }
   maybeAutoClose();
 }
 function maybeAutoClose() {
@@ -860,6 +990,7 @@ pop.addEventListener("click", e => {
 
 // ───────────────────────── Zonas: pintar sobre el piso
 function paintAt(pt) {
+  if (curCam.room !== "salon") return;
   const w = unproj(pt.x, pt.y); if (!w) return;
   const big = game.brush === 2;
   const c0 = big ? Math.round(w.x / CELL) : Math.floor(w.x / CELL), r0 = big ? Math.round(w.z / CELL) : Math.floor(w.z / CELL);
@@ -875,6 +1006,8 @@ const OBSTACLES = [
   ...SHELVES.map(sh => ({ x0: sh.x0 - .1, x1: sh.x1 + .1, z0: SEG_Z0 - .1, z1: SEG_Z0 + NSEG * SEG_L + .1 })),
   { x0: COUNTER.x0 - .1, x1: COUNTER.x1 + .1, z0: COUNTER.z0 - .1, z1: COUNTER.z1 + .1 },
   { x0: ISLAND.x0 - .1, x1: ISLAND.x1 + .1, z0: ISLAND.z0 - .1, z1: ISLAND.z1 + .1 },
+  { x0: PALLET.x0 - .1, x1: PALLET.x1 + .1, z0: PALLET.z0 - .1, z1: PALLET.z1 + .1 },
+  { x0: -5, x1: 8.6, z0: 11.95, z1: 12.05 }, { x0: 9.8, x1: 15, z0: 11.95, z1: 12.05 }, // pared del fondo con la puerta de personal
 ];
 function lineClear(a, b) {
   for (let i = 1; i < 12; i++) {
@@ -897,7 +1030,7 @@ function nearestPlace(p) {
 function stepToward(p, x, z, dt) {
   const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), step = p.speed * dt;
   p.moving = true; p.phase += dt * p.speed * 7.5;
-  if (Math.abs(dz) > .02) p.faceBack = dz > 0;
+  setFacing(p, dx, dz);
   if (d <= step) { p.x = x; p.z = z; return true; }
   p.x += dx / d * step; p.z += dz / d * step; return false;
 }
@@ -906,13 +1039,12 @@ function followWp(p, dt) {
   if (stepToward(p, p.wp[0].x, p.wp[0].z, dt)) p.wp.shift();
   return !p.wp.length;
 }
-const idStr = p => String(p.track.id).padStart(2, "0");
 function callPolice(s) {
   if (cops.some(c => c.suspect === s && c.mode === "chase")) return;
   cops.push({
     id: nextId++, role: "policia", gender: "H", h: 1.82, x: N.OUT[0], z: N.OUT[1], speed: 1.9,
     look: { skin: pick(SKIN), hair: pick(HAIR.slice(0, 4)), hairStyle: "corto", shirt: "#26476e", pants: "#172739", shoes: "#0f0f0f", police: true },
-    wp: [], phase: 0, moving: false, faceBack: false, headTurn: 0, anim: null, suspect: s, mode: "chase", repath: 0, stun: 0,
+    wp: [], phase: 0, moving: false, fx: 1, fz: 0, headTurn: 0, anim: null, suspect: s, mode: "chase", repath: 0, stun: 0,
   });
   logEvent(`Policía en camino a ID ${idStr(s)}`, "", "");
 }
@@ -930,7 +1062,7 @@ function updateCop(c, dt) {
     if (!s || !people.includes(s) || !s.track || s.track.type !== "ladron") { copLeave(c); return; }
     const d = Math.hypot(s.x - c.x, s.z - c.z);
     if (d < .7) { copArrive(c, s); return; }
-    if (d < 4 && s.role === "ladron" && !s.fleeing) thiefFlee(s, 1.6, "¡LO VIO Y CORRE!");
+    if (d < 4 && s.role === "ladron" && !s.fleeing && lineClear(c, s)) thiefFlee(s, 1.6, "¡LO VIO Y CORRE!");
     if (d < 2.4 && lineClear(c, s)) { c.wp = []; stepToward(c, s.x, s.z, dt); return; }
     c.repath -= dt;
     if (c.repath <= 0 || !c.wp.length) { c.repath = .5; c.wp = route(nearestPlace(c), nearestPlace(s)); }
@@ -954,13 +1086,16 @@ function copArrive(c, s) {
   copLeave(c);
 }
 
-const qteEl = document.getElementById("qte"), qteKeys = document.getElementById("qteKeys"), qteBar = document.getElementById("qteBar");
+const qteEl = $("qte"), qteKeys = $("qteKeys"), qteBar = $("qteBar");
 const ARROWS = ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"];
 const GLYPH = { ArrowLeft: "←", ArrowUp: "↑", ArrowRight: "→", ArrowDown: "↓" };
 function startQte(c, s) {
   const n = Math.min(8, 4 + game.level);
   game.qte = { c, s, seq: Array.from({ length: n }, () => pick(ARROWS)), i: 0, t: 0, limit: 1.4 + n * .6 };
-  closePopup(); c.moving = false; s.moving = false; s.faceBack = false; c.faceBack = false;
+  closePopup(); closeFix(); c.moving = false; s.moving = false;
+  setFacing(c, s.x - c.x, s.z - c.z); setFacing(s, c.x - s.x, c.z - s.z);
+  // mostrar el arresto en una cámara que lo vea
+  if (!inView(curCam, s) || curCam.hacked) { const k = CAMS.findIndex(cam => !cam.hacked && inView(cam, s)); if (k >= 0) switchCam(k); }
   renderQte(); qteEl.hidden = false;
 }
 function renderQte() {
@@ -992,24 +1127,268 @@ function qteLose() {
 }
 qteEl.addEventListener("pointerdown", e => { const b = e.target.closest("button[data-k]"); if (b) { e.preventDefault(); qteKey(b.dataset.k); } });
 
+// ───────────────────────── Hackeos
+const HACK_KINDS = ["wires", "bugs", "puzzle"];
+function startHack() {
+  const free = CAMS.filter(c => !c.hacked); if (!free.length) return;
+  const cam = !curCam.hacked && Math.random() < .6 ? curCam : pick(free);
+  cam.hacked = { since: game.t, kind: HACK_KINDS[game.hackN++ % HACK_KINDS.length], ip: `${Math.floor(rnd(45, 220))}.${Math.floor(rnd(1, 254))}.${Math.floor(rnd(1, 254))}.${Math.floor(rnd(1, 254))}` };
+  game.stats.hacks++;
+  if (cam === curCam) { drag = null; closePopup(); }
+  logEvent(`Intrusión en ${camTag(cam)}`, "", "n");
+  syncHackUi();
+}
+const fixEl = $("fix"), fixCv = $("fixCv"), fctx = fixCv.getContext("2d");
+fixCv.width = 640 * DPR; fixCv.height = 480 * DPR;
+let fix = null;
+function openFix() {
+  if (!curCam.hacked || game.state !== "play") return;
+  closePopup(); drag = null;
+  const cam = curCam, kind = cam.hacked.kind;
+  fix = kind === "wires" ? makeWires() : kind === "bugs" ? makeBugs() : makePuzzle(cam);
+  fix.cam = cam; fix.done = 0;
+  $("fixCam").textContent = `${camTag(cam)} · ${cam.name} · intrusión desde ${cam.hacked.ip}`;
+  $("fixTitle").textContent = fix.title; $("fixHint").textContent = fix.hint;
+  fixEl.hidden = false; syncHackUi();
+}
+function closeFix() { fix = null; fixEl.hidden = true; syncHackUi(); }
+function finishFix() {
+  const cam = fix.cam, secs = game.t - cam.hacked.since, pts = 120 + Math.max(0, Math.round(100 - secs * 3));
+  cam.hacked = null; game.stats.repaired++; scorePoints(pts, "clsScore");
+  logEvent(`${camTag(cam)} restaurada`, `+${pts}`, "p");
+  closeFix();
+  if (cam === curCam) floatAt(W / 2, H / 2, `SEÑAL RESTAURADA +${pts}`, "#43e08a");
+}
+function fixPt(e) { const r = fixCv.getBoundingClientRect(); return { x: (e.clientX - r.left) * 640 / r.width, y: (e.clientY - r.top) * 480 / r.height }; }
+fixCv.addEventListener("pointerdown", e => { if (!fix || fix.done || game.paused) return; fixCv.setPointerCapture(e.pointerId); const p = fixPt(e); fix.down(p.x, p.y); });
+fixCv.addEventListener("pointermove", e => { if (!fix || fix.done) return; const p = fixPt(e); fix.move && fix.move(p.x, p.y); });
+fixCv.addEventListener("pointerup", e => { if (!fix || fix.done) return; const p = fixPt(e); fix.up && fix.up(p.x, p.y); });
+$("fixClose").onclick = closeFix;
+$("hackBtn").onclick = openFix;
+
+// Minijuego 1: cables del switch
+function makeWires() {
+  const n = Math.min(6, 4 + Math.max(0, game.level - 1));
+  const COLORS = ["#ff4d4d", "#ffd23f", "#4d8dff", "#43e08a", "#f2f2f2", "#ff8a2a"].slice(0, n);
+  const right = shuffle([...Array(n).keys()]);
+  const L = i => ({ x: 120, y: 110 + i * (300 / (n - 1)) }), R = j => ({ x: 520, y: 110 + j * (300 / (n - 1)) });
+  const link = Array(n).fill(-1);
+  const g = {
+    title: "Reconectá los cables", hint: "El hacker desenchufó el switch. Arrastrá cada cable de la izquierda al puerto del mismo color.",
+    drag: null, spark: null,
+    down(x, y) { for (let i = 0; i < n; i++) if (link[i] < 0 && Math.hypot(x - L(i).x, y - L(i).y) < 34) { this.drag = { i, x, y }; return; } },
+    move(x, y) { if (this.drag) { this.drag.x = x; this.drag.y = y; } },
+    up(x, y) {
+      if (!this.drag) return;
+      const i = this.drag.i; this.drag = null;
+      for (let j = 0; j < n; j++) if (Math.hypot(x - R(j).x, y - R(j).y) < 36) {
+        if (right[j] === i && !link.includes(j)) link[i] = j; else this.spark = { x, y, t: 0 };
+        return;
+      }
+    },
+    update(dt) { if (this.spark) { this.spark.t += dt; if (this.spark.t > .5) this.spark = null; } },
+    solved: () => link.every(v => v >= 0),
+    progress: () => `${link.filter(v => v >= 0).length}/${n} conectados`,
+    draw(c, time) {
+      c.fillStyle = "#0d1416"; c.fillRect(0, 0, 640, 480);
+      c.fillStyle = "#151f22"; c.fillRect(70, 60, 500, 380); c.strokeStyle = "#26363a"; c.lineWidth = 2; c.strokeRect(70, 60, 500, 380);
+      c.font = '600 13px "JetBrains Mono", monospace'; c.fillStyle = "#8d9e9a"; c.textAlign = "left";
+      c.fillText(`PATCH PANEL · SWITCH PoE · ${camTag(fix.cam)}`, 84, 82);
+      const wire = (a, b, col) => {
+        c.lineCap = "round";
+        for (const [w, s] of [[15, "rgba(0,0,0,.55)"], [10, col]]) { c.strokeStyle = s; c.lineWidth = w; c.beginPath(); c.moveTo(a.x, a.y); c.bezierCurveTo(a.x + 160, a.y, b.x - 160, b.y, b.x, b.y); c.stroke(); }
+      };
+      for (let i = 0; i < n; i++) if (link[i] >= 0) wire(L(i), R(link[i]), COLORS[i]);
+      if (this.drag) wire(L(this.drag.i), this.drag, COLORS[this.drag.i]);
+      for (let i = 0; i < n; i++) {
+        const a = L(i);
+        if (link[i] < 0 && !(this.drag && this.drag.i === i)) { c.strokeStyle = COLORS[i]; c.lineWidth = 10; c.lineCap = "round"; c.beginPath(); c.moveTo(a.x, a.y); c.quadraticCurveTo(a.x + 30, a.y + 24, a.x + 22, a.y + 40 + Math.sin(time * 3 + i) * 3); c.stroke(); }
+        c.fillStyle = "#2a3336"; c.fillRect(a.x - 46, a.y - 16, 40, 32); c.fillStyle = COLORS[i]; c.fillRect(a.x - 10, a.y - 11, 20, 22);
+        c.fillStyle = "#111"; c.fillRect(a.x - 4, a.y - 6, 8, 12);
+      }
+      for (let j = 0; j < n; j++) {
+        const b = R(j), on = link.includes(j);
+        c.fillStyle = "#0a0f10"; c.fillRect(b.x - 16, b.y - 16, 32, 32);
+        c.strokeStyle = COLORS[right[j]]; c.lineWidth = 4; c.strokeRect(b.x - 16, b.y - 16, 32, 32);
+        c.fillStyle = on ? "#43e08a" : Math.floor(time * 3 + j) % 2 ? "#ff5a52" : "#401614"; c.beginPath(); c.arc(b.x + 34, b.y, 5, 0, Math.PI * 2); c.fill();
+      }
+      if (this.spark) {
+        const s = this.spark; c.strokeStyle = `rgba(255,220,90,${1 - s.t * 2})`; c.lineWidth = 3;
+        for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; c.beginPath(); c.moveTo(s.x + Math.cos(a) * 8, s.y + Math.sin(a) * 8); c.lineTo(s.x + Math.cos(a) * (18 + s.t * 40), s.y + Math.sin(a) * (18 + s.t * 40)); c.stroke(); }
+        c.fillStyle = "#ff5a52"; c.font = '700 16px "Chakra Petch", sans-serif'; c.textAlign = "center"; c.fillText("¡CHISPA! ESE NO ES", s.x, s.y - 26);
+      }
+    },
+  };
+  return g;
+}
+
+// Minijuego 2: matar bugs en el servidor Cerebro
+function makeBugs() {
+  const MAX = 14;
+  const newBug = (x, y) => ({ x: x ?? rnd(90, 550), y: y ?? rnd(130, 430), a: rnd(0, Math.PI * 2), sp: rnd(75, 125), ph: rnd(0, 6), turn: 0, alive: true });
+  const bugs = Array.from({ length: 5 + Math.min(5, game.level * 2) }, () => newBug());
+  const LOGS = ["[cerebro] reid: 512 embeddings ok", "[cerebro] heatmap 640x480 actualizado", "WARN proceso desconocido pid 6641", "[outbox] 3 sesiones pendientes", "ERR /dev/video1: frame corrupto", "WARN conexión entrante 0.0.0.0:22", "[cerebro] zonas_tiempo: OK", "ERR checksum inválido en yolov8n.onnx", "[sistema] temperatura CPU 71°C"];
+  const lines = Array.from({ length: 12 }, () => pick(LOGS));
+  const g = {
+    title: "Matá los bugs del Cerebro", hint: "Se metieron bichos en el servidor del local. Tocalos antes de que se reproduzcan.",
+    splats: [], breed: 2.8, logT: 0,
+    down(x, y) {
+      let hit = null, hd = 34;
+      for (const b of bugs) if (b.alive) { const d = Math.hypot(b.x - x, b.y - y); if (d < hd) { hd = d; hit = b; } }
+      if (hit) { hit.alive = false; this.splats.push({ x: hit.x, y: hit.y, t: 0 }); lines.push(`[kill] bug pid ${Math.floor(rnd(1000, 9999))} eliminado`); }
+    },
+    update(dt) {
+      for (const b of bugs) {
+        if (!b.alive) continue;
+        b.turn = clamp(b.turn + rnd(-4, 4) * dt, -2.6, 2.6); b.a += b.turn * dt; b.ph += dt * 22;
+        b.x += Math.cos(b.a) * b.sp * dt; b.y += Math.sin(b.a) * b.sp * dt;
+        if (b.x < 30 || b.x > 610) { b.a = Math.PI - b.a; b.x = clamp(b.x, 30, 610); }
+        if (b.y < 100 || b.y > 455) { b.a = -b.a; b.y = clamp(b.y, 100, 455); }
+      }
+      this.breed -= dt;
+      const alive = bugs.filter(b => b.alive);
+      if (this.breed <= 0) {
+        this.breed = 2.8;
+        if (alive.length && alive.length < MAX) { const b = pick(alive); bugs.push(newBug(b.x, b.y)); lines.push("WARN un bug se duplicó"); }
+      }
+      for (const s of this.splats) s.t += dt;
+      this.splats = this.splats.filter(s => s.t < 2.5);
+      this.logT += dt; if (this.logT > .5) { this.logT = 0; lines.push(pick(LOGS)); }
+      while (lines.length > 14) lines.shift();
+    },
+    solved: () => !bugs.some(b => b.alive),
+    progress: () => `${bugs.filter(b => b.alive).length} bugs vivos`,
+    draw(c, time) {
+      c.fillStyle = "#050d08"; c.fillRect(0, 0, 640, 480);
+      c.font = '600 13px "JetBrains Mono", monospace'; c.textAlign = "left";
+      c.fillStyle = "#43e08a"; c.fillText("cerebro@raspberrypi:~$ top -o bugs", 20, 30);
+      c.fillStyle = "#ff5a52"; c.textAlign = "right"; c.fillText(`PROCESOS MALICIOSOS: ${bugs.filter(b => b.alive).length}`, 620, 30); c.textAlign = "left";
+      c.strokeStyle = "#163222"; c.beginPath(); c.moveTo(14, 44); c.lineTo(626, 44); c.stroke();
+      c.font = '400 12px "JetBrains Mono", monospace';
+      lines.forEach((l, i) => { c.fillStyle = l.startsWith("ERR") ? "rgba(255,90,82,.45)" : l.startsWith("WARN") ? "rgba(255,181,71,.4)" : "rgba(67,224,138,.3)"; c.fillText(l, 20, 70 + i * 28); });
+      for (const s of this.splats) { c.globalAlpha = Math.max(0, 1 - s.t / 2.5); c.fillStyle = "#b6d64a"; c.beginPath(); for (let k = 0; k < 9; k++) { const a = k / 9 * Math.PI * 2, r = 9 + (k % 2 ? 7 : 2); c.lineTo(s.x + Math.cos(a) * r, s.y + Math.sin(a) * r); } c.fill(); c.globalAlpha = 1; }
+      for (const b of bugs) {
+        if (!b.alive) continue;
+        c.save(); c.translate(b.x, b.y); c.rotate(b.a);
+        c.strokeStyle = "#2b0f0a"; c.lineWidth = 2;
+        for (let k = -1; k <= 1; k++) for (const sd of [-1, 1]) { const w = Math.sin(b.ph + k * 2 + (sd > 0 ? 1 : 0)) * 4; c.beginPath(); c.moveTo(k * 5, sd * 4); c.lineTo(k * 5 + w, sd * 15); c.stroke(); }
+        c.beginPath(); c.moveTo(13, -2); c.lineTo(22, -7); c.moveTo(13, 2); c.lineTo(22, 7); c.stroke();
+        c.fillStyle = "#d9442f"; c.beginPath(); c.ellipse(0, 0, 13, 9, 0, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "#7a1f14"; c.beginPath(); c.moveTo(-12, 0); c.lineTo(10, 0); c.stroke();
+        c.fillStyle = "#3a1a12"; c.beginPath(); c.arc(13, 0, 5, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+    },
+  };
+  return g;
+}
+
+// Minijuego 3: rearmar la imagen de la cámara girando cuadros
+function makePuzzle(cam) {
+  const n = game.level >= 3 ? 4 : 3, S = 420, T = S / n, ox = (640 - S) / 2, oy = 50;
+  const snap = document.createElement("canvas"); snap.width = 640; snap.height = 480;
+  renderView(snap.getContext("2d"), cam, 640 / W, { tracks: false });
+  const rot = Array.from({ length: n * n }, () => Math.random() < .75 ? 1 + Math.floor(Math.random() * 3) : 0);
+  const anim = Array(n * n).fill(0);
+  return {
+    title: "Rearmá la señal", hint: "La imagen llega desordenada. Tocá cada cuadro para girarlo hasta que la escena quede derecha.",
+    down(x, y) {
+      const c = Math.floor((x - ox) / T), r = Math.floor((y - oy) / T);
+      if (c < 0 || r < 0 || c >= n || r >= n) return;
+      const i = r * n + c; rot[i] = (rot[i] + 1) % 4; anim[i] = 1;
+    },
+    update(dt) { for (let i = 0; i < anim.length; i++) anim[i] = Math.max(0, anim[i] - dt * 7); },
+    solved: () => rot.every(v => v === 0) && anim.every(v => v === 0),
+    progress: () => `${rot.filter(v => v === 0).length}/${n * n} derechos`,
+    draw(c) {
+      c.fillStyle = "#060b0c"; c.fillRect(0, 0, 640, 480);
+      for (let i = 0; i < n * n; i++) {
+        const col = i % n, row = Math.floor(i / n), cx = ox + col * T + T / 2, cy = oy + row * T + T / 2;
+        c.save(); c.translate(cx, cy); c.rotate((rot[i] - anim[i]) * Math.PI / 2);
+        c.drawImage(snap, 110 + col * T, 30 + row * T, T, T, -T / 2, -T / 2, T, T);
+        c.restore();
+      }
+      c.strokeStyle = "#0b1012"; c.lineWidth = 3;
+      for (let k = 0; k <= n; k++) { c.beginPath(); c.moveTo(ox + k * T, oy); c.lineTo(ox + k * T, oy + S); c.stroke(); c.beginPath(); c.moveTo(ox, oy + k * T); c.lineTo(ox + S, oy + k * T); c.stroke(); }
+      c.font = '600 13px "JetBrains Mono", monospace'; c.fillStyle = "#8d9e9a"; c.textAlign = "left"; c.fillText(`${camTag(fix.cam)} · reconstruyendo cuadro`, ox, 32);
+    },
+  };
+}
+function drawFix(time, dt) {
+  if (!fix) return;
+  if (!game.paused) fix.update(dt);
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fix.draw(fctx, time);
+  fctx.font = '600 13px "JetBrains Mono", monospace'; fctx.textAlign = "right"; fctx.fillStyle = "#ffb547";
+  fctx.fillText(fix.progress(), 626, 470);
+  if (!fix.done && fix.solved()) fix.done = .001;
+  if (fix.done) {
+    fix.done += dt;
+    fctx.fillStyle = `rgba(10,30,18,${Math.min(.8, fix.done * 2)})`; fctx.fillRect(0, 0, 640, 480);
+    fctx.textAlign = "center"; fctx.fillStyle = "#43e08a"; fctx.font = '700 40px "Chakra Petch", sans-serif'; fctx.fillText("SEÑAL RESTAURADA", 320, 250);
+    if (fix.done > .9) finishFix();
+  }
+  fctx.textAlign = "left";
+}
+
+// ───────────────────────── Cambio de cámara
+const camstrip = $("camstrip"), thumbs = [];
+CAMS.forEach((c, i) => {
+  const b = document.createElement("button"); b.className = "cambtn"; b.type = "button";
+  b.innerHTML = `<canvas width="240" height="180"></canvas><div class="cl"><span>${camTag(c)}<b> · ${c.short}</b></span><em hidden></em></div>`;
+  b.onclick = () => switchCam(i);
+  camstrip.appendChild(b);
+  thumbs.push({ btn: b, ctx: b.querySelector("canvas").getContext("2d"), badge: b.querySelector("em") });
+});
+function switchCam(i) {
+  const c = CAMS[i]; if (!c || c === curCam) return;
+  curCam = c; CAM = c; drag = null; closePopup(); floats = []; flashes = [];
+  for (const p of people) p.hist = [];
+  syncCamUi(); syncHackUi();
+}
+function syncCamUi() {
+  CAMS.forEach((c, i) => {
+    const t = thumbs[i]; t.btn.setAttribute("aria-pressed", String(c === curCam)); t.btn.classList.toggle("hacked", !!c.hacked);
+    let txt = "", cls = "";
+    if (c.hacked) { txt = "HACKEADA"; cls = "hack"; }
+    else if (game.state === "play") {
+      const unmarked = people.filter(p => !p.track && inView(c, p)).length;
+      const thief = people.some(p => p.track && p.track.type === "ladron" && !p.cuffed && inView(c, p));
+      if (thief) { txt = "LADRÓN"; cls = "thief"; } else if (unmarked) { txt = `${unmarked} sin marcar`; cls = "warn"; }
+    }
+    t.badge.hidden = !txt; t.badge.textContent = txt; t.badge.className = cls;
+  });
+  $("camLabel").textContent = `${camTag(curCam)} · ${curCam.name}`;
+}
+function syncHackUi() {
+  $("hackBtn").hidden = !(curCam.hacked && !fix && game.state === "play");
+  $("hackBtn").textContent = `Reparar ${camTag(curCam)}`;
+  syncCamUi();
+}
+
 // ───────────────────────── Bucle
-let last = performance.now();
+let last = performance.now(), nowT = 0, thumbTurn = 0, uiTick = 0;
 function frame(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const dt = Math.min(.05, (now - last) / 1000); last = now; nowT = now / 1000;
   if (game.state === "play" && !game.paused) {
     if (game.qte) {
       game.qte.t += dt; renderQte();
       if (game.qte.t >= game.qte.limit) qteLose();
-    } else update(dt * (popFor ? .25 : 1));
+    } else update(dt * (popFor ? .25 : fix ? .5 : 1));
   } else if (game.state === "setup") {
-    for (const p of people) { p.headTurn = Math.sin(now / 1400 + p.id) * .5; }
+    for (const p of people) p.headTurn = Math.sin(now / 1400 + p.id) * .5;
   }
   for (const f of floats) f.t += dt;
   floats = floats.filter(f => f.t < 1.8);
   for (const f of flashes) f.t += dt;
   flashes = flashes.filter(f => f.t < .6);
-  render(now / 1000);
+  render(nowT);
+  // una miniatura por cuadro, en ronda
+  thumbTurn = (thumbTurn + 1) % (CAMS.length * 2);
+  if (thumbTurn % 2 === 0) drawThumb(thumbTurn / 2);
+  drawFix(nowT, dt);
   if (popFor) placePopup();
+  uiTick -= dt; if (uiTick <= 0) { uiTick = .3; syncCamUi(); }
   requestAnimationFrame(frame);
 }
 
@@ -1018,17 +1397,18 @@ function update(dt) {
   const cfg = levelCfg(game.level);
   game.t += dt;
   const remaining = cfg.dur - game.t;
-  // aparición de gente
   if (remaining > 14) {
     game.spawnIn -= dt;
     const inside = people.length;
-    if (game.thiefTimes.length && game.t >= game.thiefTimes[0] && inside < cfg.maxIn + 1) { game.thiefTimes.shift(); spawnPerson("ladron"); }
+    if (game.thiefTimes.length && game.t >= game.thiefTimes[0].t && inside < cfg.maxIn + 1) { const th = game.thiefTimes.shift(); spawnPerson("ladron", { depot: th.depot }); }
     else if (game.restockTimes.length && game.t >= game.restockTimes[0]) { game.restockTimes.shift(); spawnPerson("empleado"); }
     else if (game.spawnIn <= 0) {
       game.spawnIn = rnd(cfg.spawn[0], cfg.spawn[1]);
       if (inside < cfg.maxIn) spawnPerson("cliente");
     }
+    if (game.hackTimes.length && game.t >= game.hackTimes[0]) { game.hackTimes.shift(); startHack(); }
   }
+  for (const c of CAMS) if (c.hacked) game.stats.downTime += dt;
   for (const p of people.slice()) updatePerson(p, dt);
   for (const c of cops.slice()) updateCop(c, dt);
   if (popFor && !people.includes(popFor)) closePopup();
@@ -1047,7 +1427,7 @@ function update(dt) {
 function endShift() {
   for (const p of people) settle(p, true);
   game.qte = null; qteEl.hidden = true; cops = [];
-  closePopup();
+  closePopup(); closeFix();
   game.state = "report";
   updateHud();
   showReport();
@@ -1056,29 +1436,36 @@ function endShift() {
 // ───────────────────────── Render
 const noise = document.createElement("canvas"); noise.width = 256; noise.height = 256;
 { const n = noise.getContext("2d"), d = n.createImageData(256, 256); for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 18; } n.putImageData(d, 0, 0); }
+const STATIC = Array.from({ length: 4 }, () => {
+  const c = document.createElement("canvas"); c.width = 160; c.height = 120;
+  const g = c.getContext("2d"), d = g.createImageData(160, 120);
+  for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = v; d.data[i + 1] = v * .9; d.data[i + 2] = v * .95; d.data[i + 3] = 255; }
+  g.putImageData(d, 0, 0); return c;
+});
 const scan = document.createElement("canvas"); scan.width = 4; scan.height = 4;
 { const s = scan.getContext("2d"); s.fillStyle = "rgba(0,0,0,.18)"; s.fillRect(0, 0, 4, 1); }
-let scanPat = null;
 
 function poly(pts, fill, stroke, lw = 1) {
+  if (pts.length < 3) return;
   ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
 }
-const P = (x, y, z) => proj(x, y, z);
-const quad = (a, b, c, d) => [P(...a), P(...b), P(...c), P(...d)];
-// Texto apoyado sobre un plano del mundo (piso o pared). u = derecha del texto, v = abajo del texto.
+function line(a, b, color, lw) { ctx.strokeStyle = color; ctx.lineWidth = lw; seg3(a, b); }
+// Texto apoyado sobre un plano del mundo. u = derecha del texto, v = abajo del texto.
 function planeText(txt, o, u, v, sizeDm, color, align = "center", weight = 700, font = "Chakra Petch") {
-  const p0 = P(...o), pu = P(o[0] + u[0] * .1, o[1] + u[1] * .1, o[2] + u[2] * .1), pv = P(o[0] + v[0] * .1, o[1] + v[1] * .1, o[2] + v[2] * .1);
+  const p0 = P(...o); if (p0.d < .4) return;
+  const pu = P(o[0] + u[0] * .1, o[1] + u[1] * .1, o[2] + u[2] * .1), pv = P(o[0] + v[0] * .1, o[1] + v[1] * .1, o[2] + v[2] * .1);
   ctx.save();
   setT(pu.x - p0.x, pu.y - p0.y, pv.x - p0.x, pv.y - p0.y, p0.x, p0.y);
   ctx.font = `${weight} ${sizeDm}px "${font}", sans-serif`; ctx.textAlign = align; ctx.textBaseline = "middle";
   ctx.fillStyle = color; ctx.fillText(txt, 0, 0);
   ctx.restore();
 }
+// Cartel en un plano z = cte que se lee bien desde cualquier lado.
+const signZ = (txt, x, y, z, size, color) => planeText(txt, [x, y, z], [CAM.z < z ? 1 : -1, 0, 0], [0, -1, 0], size, color);
 
-function drawRoom(time) {
-  // piso base (cubre todo)
+function drawSalon() {
   ctx.fillStyle = "#6f7470"; ctx.fillRect(0, 0, W, H);
   // techo
   poly(quad([0, STORE.h, -2], [STORE.w, STORE.h, -2], [STORE.w, STORE.h, STORE.d], [0, STORE.h, STORE.d]), "#3a3f40");
@@ -1087,73 +1474,94 @@ function drawRoom(time) {
   poly(quad([0, 0, STORE.d], [STORE.w, 0, STORE.d], [STORE.w, STORE.h, STORE.d], [0, STORE.h, STORE.d]), "#b9b7ae");
   poly(quad([0, 0, -2], [0, 0, STORE.d], [0, STORE.h, STORE.d], [0, STORE.h, -2]), "#a7a59c");
   poly(quad([STORE.w, 0, -2], [STORE.w, 0, STORE.d], [STORE.w, STORE.h, STORE.d], [STORE.w, STORE.h, -2]), "#a19f96");
-  // zócalos
+  // frente vidriado (lo ve la CAM-02)
+  poly(quad([0, 0, -2], [STORE.w, 0, -2], [STORE.w, STORE.h, -2], [0, STORE.h, -2]), "#9c9a92");
+  poly(quad([1, .35, -1.99], [9, .35, -1.99], [9, 2.7, -1.99], [1, 2.7, -1.99]), "#b8cdd2", "#555b5a", 3);
+  for (const x of [3, 5, 7]) line([x, .35, -1.98], [x, 2.7, -1.98], "#555b5a", 3);
+  for (const x of [1.6, 4.4, 7.3]) line([x, .6, -1.98], [x + .7, 2.4, -1.98], "rgba(255,255,255,.35)", 4);
   poly(quad([0, 0, STORE.d - .001], [STORE.w, 0, STORE.d - .001], [STORE.w, .12, STORE.d - .001], [0, .12, STORE.d - .001]), "#6b6a64");
   // piso
   poly(quad([0, 0, -2], [STORE.w, 0, -2], [STORE.w, 0, STORE.d], [0, 0, STORE.d]), "#7c817c");
-  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(40,45,44,.22)";
-  for (let x = 0; x <= STORE.w; x += 1) { const a = P(x, 0, -2), b = P(x, 0, STORE.d); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-  for (let z = -2; z <= STORE.d; z += 1) { const a = P(0, 0, z), b = P(STORE.w, 0, z); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-
+  for (let x = 0; x <= STORE.w; x += 1) line([x, 0, -2], [x, 0, STORE.d], "rgba(40,45,44,.22)", 1);
+  for (let z = -2; z <= STORE.d; z += 1) line([0, 0, z], [STORE.w, 0, z], "rgba(40,45,44,.22)", 1);
   // puerta de entrada (pared izquierda)
-  poly(quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]), "#cfdde0");
+  poly(quad(...PORTALS.main), "#cfdde0");
   poly(quad([0, 0, 3], [0, 0, 5], [0, .9, 5], [0, .9, 3]), "#b5c6c4");
-  poly(quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]), null, "#3d4442", 3);
-  { const a = P(0, 0, 4), b = P(0, 2.3, 4); ctx.strokeStyle = "#3d4442"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  poly(quad(...PORTALS.main), null, "#3d4442", 3);
+  line([0, 0, 4], [0, 2.3, 4], "#3d4442", 2);
   poly(quad([0, 2.42, 3.55], [0, 2.42, 4.45], [0, 2.72, 4.45], [0, 2.72, 3.55]), "#1f9d55");
   planeText("SALIDA", [0.005, 2.57, 4], [0, 0, 1], [0, -1, 0], 1.6, "#eafff2");
-  // felpudo
   poly(quad([0, .003, 3.1], [1.1, .003, 3.1], [1.1, .003, 4.9], [0, .003, 4.9]), "#4a4f4c");
-
   // probadores
   for (const [x0, x1] of [[0.6, 1.9], [2.1, 3.4]]) {
     poly(quad([x0, 0, STORE.d - .01], [x1, 0, STORE.d - .01], [x1, 2.15, STORE.d - .01], [x0, 2.15, STORE.d - .01]), "#7d3a48");
-    for (let x = x0 + .13; x < x1; x += .2) { const a = P(x, .05, STORE.d - .02), b = P(x, 2.1, STORE.d - .02); ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    for (let x = x0 + .13; x < x1; x += .2) line([x, .05, STORE.d - .02], [x, 2.1, STORE.d - .02], "rgba(0,0,0,.25)", 1.5);
   }
   planeText("PROBADORES", [2.0, 2.45, STORE.d - .01], [1, 0, 0], [0, -1, 0], 2.4, "#3a3a36");
-  // póster
   poly(quad([4.3, 1.35, STORE.d - .01], [6.4, 1.35, STORE.d - .01], [6.4, 2.65, STORE.d - .01], [4.3, 2.65, STORE.d - .01]), "#e8463a");
   planeText("LIQUIDACIÓN", [5.35, 2.25, STORE.d - .02], [1, 0, 0], [0, -1, 0], 2.6, "#fff4e8");
   planeText("−30%", [5.35, 1.75, STORE.d - .02], [1, 0, 0], [0, -1, 0], 4.6, "#fff4e8");
-  // puerta de depósito
-  const staffOpen = people.some(p => p.role === "empleado" && !p.cashier && p.z > 11.3);
-  poly(quad([8.65, 0, STORE.d - .01], [9.75, 0, STORE.d - .01], [9.75, 2.2, STORE.d - .01], [8.65, 2.2, STORE.d - .01]), staffOpen ? "#1c1f20" : "#5c6466", "#383d3e", 2);
-  planeText("SOLO PERSONAL", [9.2, 2.38, STORE.d - .01], [1, 0, 0], [0, -1, 0], 1.3, "#3a3a36");
-  // mostrador: cartel colgante "CAJA"
+  // puerta de personal (al depósito)
+  const staffOpen = [...people, ...cops].some(p => Math.hypot(p.x - 9.2, p.z - 12) < 1.1);
+  poly(quad(...PORTALS.staff), staffOpen ? "#2a2f30" : "#5c6466", "#383d3e", 2);
+  planeText("DEPÓSITO · SOLO PERSONAL", [9.2, 2.38, STORE.d - .01], [1, 0, 0], [0, -1, 0], 1.15, "#3a3a36");
+}
+
+function drawDeposit() {
+  ctx.fillStyle = "#4e524f"; ctx.fillRect(0, 0, W, H);
+  const { x0, x1, z0, z1, h } = DEP;
+  poly(quad([x0, h, z0], [x1, h, z0], [x1, h, z1], [x0, h, z1]), "#2f3334");
+  poly(quad([7.4, h - .01, 13.8], [8.6, h - .01, 13.8], [8.6, h - .01, 14.1], [7.4, h - .01, 14.1]), "#e6ece8");
+  poly(quad([x0, 0, z0], [x1, 0, z0], [x1, h, z0], [x0, h, z0]), "#8f8d85");
+  poly(quad([x0, 0, z0], [x0, 0, z1], [x0, h, z1], [x0, h, z0]), "#999790");
+  poly(quad([x1, 0, z0], [x1, 0, z1], [x1, h, z1], [x1, h, z0]), "#85837c");
+  poly(quad([x0, 0, z1], [x1, 0, z1], [x1, h, z1], [x0, h, z1]), "#8a887f");
+  poly(quad([x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]), "#666a66");
+  for (let x = x0; x <= x1; x += 1) line([x, 0, z0], [x, 0, z1], "rgba(30,32,30,.25)", 1);
+  for (let z = z0; z <= z1; z += 1) line([x0, 0, z], [x1, 0, z], "rgba(30,32,30,.25)", 1);
+  // franja de seguridad frente al portón
+  for (let z = 13.3; z < 14.7; z += .28) poly(quad([9.55, .004, z], [9.95, .004, z], [9.95, .004, z + .14], [9.55, .004, z + .14]), "#e3b52b");
+  // portón de carga (siempre abierto: se ve la calle)
+  poly(quad(...PORTALS.dock), "#d5ddd9");
+  poly(quad([10, 2.4, 13.3], [10, 2.4, 14.7], [10, 1.95, 14.7], [10, 1.95, 13.3]), "#7a7f80");
+  for (let y = 2.0; y < 2.4; y += .09) line([9.99, y, 13.3], [9.99, y, 14.7], "#5b6061", 1.5);
+  poly(quad(...PORTALS.dock), null, "#3e4243", 3);
+  planeText("CARGA Y DESCARGA", [9.99, 2.62, 14.0], [0, 0, -1], [0, -1, 0], 1.3, "#2f3232");
+  // puerta al salón
+  const open = [...people, ...cops].some(p => Math.hypot(p.x - 9.2, p.z - 12) < 1.1);
+  poly(quad(...PORTALS.staff), open ? "#cfd3cb" : "#5c6466", "#383d3e", 2);
+  planeText("SALÓN →", [9.2, 2.38, 12.01], [-1, 0, 0], [0, -1, 0], 1.4, "#2f3232");
+  // cartel
+  poly(quad([6.01, 2.3, 13.4], [6.01, 2.3, 14.9], [6.01, 2.8, 14.9], [6.01, 2.8, 13.4]), "#ffd23f", "#6b5a12", 1.5);
+  planeText("USÁ CASCO", [6.02, 2.55, 14.15], [0, 0, 1], [0, -1, 0], 2.2, "#3a2e06");
 }
 
 function drawZones() {
   const show = game.mode === "zones" || game.state === "setup";
-  // relleno
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     const z = zones[r * COLS + c]; if (z < 0) continue;
     const x0 = c * CELL, z0 = r * CELL;
     poly(quad([x0, .005, z0], [x0 + CELL, .005, z0], [x0 + CELL, .005, z0 + CELL], [x0, .005, z0 + CELL]), LABELS[z].color + (show ? "55" : "38"));
   }
-  // bordes entre zonas
-  ctx.lineWidth = 2.2;
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     const z = zones[r * COLS + c]; if (z < 0) continue;
     const x0 = c * CELL, z0 = r * CELL, col = LABELS[z].color;
-    const edge = (a, b) => { const A = P(...a), B = P(...b); ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); };
-    if (c === 0 || zones[r * COLS + c - 1] !== z) edge([x0, .006, z0], [x0, .006, z0 + CELL]);
-    if (c === COLS - 1 || zones[r * COLS + c + 1] !== z) edge([x0 + CELL, .006, z0], [x0 + CELL, .006, z0 + CELL]);
-    if (r === 0 || zones[(r - 1) * COLS + c] !== z) edge([x0, .006, z0], [x0 + CELL, .006, z0]);
-    if (r === ROWS - 1 || zones[(r + 1) * COLS + c] !== z) edge([x0, .006, z0 + CELL], [x0 + CELL, .006, z0 + CELL]);
+    if (c === 0 || zones[r * COLS + c - 1] !== z) line([x0, .006, z0], [x0, .006, z0 + CELL], col, 2.2);
+    if (c === COLS - 1 || zones[r * COLS + c + 1] !== z) line([x0 + CELL, .006, z0], [x0 + CELL, .006, z0 + CELL], col, 2.2);
+    if (r === 0 || zones[(r - 1) * COLS + c] !== z) line([x0, .006, z0], [x0 + CELL, .006, z0], col, 2.2);
+    if (r === ROWS - 1 || zones[(r + 1) * COLS + c] !== z) line([x0, .006, z0 + CELL], [x0 + CELL, .006, z0 + CELL], col, 2.2);
   }
-  // grilla en modo zonas
   if (show) {
-    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,181,71,.22)";
-    for (let c = 0; c <= COLS; c++) { const a = P(c * CELL, .007, 0), b = P(c * CELL, .007, STORE.d); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-    for (let r = 0; r <= ROWS; r++) { const a = P(0, .007, r * CELL), b = P(STORE.w, .007, r * CELL); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    for (let c = 0; c <= COLS; c++) line([c * CELL, .007, 0], [c * CELL, .007, STORE.d], "rgba(255,181,71,.22)", 1);
+    for (let r = 0; r <= ROWS; r++) line([0, .007, r * CELL], [STORE.w, .007, r * CELL], "rgba(255,181,71,.22)", 1);
   }
-  // etiquetas escritas sobre el piso
+  // etiquetas escritas sobre el piso, orientadas hacia la cámara
+  const u = [CAM.right.x, 0, CAM.right.z], v = [-CAM.fwd.x, 0, -CAM.fwd.z];
   for (let li = 0; li < LABELS.length; li++) {
     let n = 0, sx = 0, sz = 0;
     for (let i = 0; i < zones.length; i++) if (zones[i] === li) { n++; sx += (i % COLS + .5) * CELL; sz += (Math.floor(i / COLS) + .5) * CELL; }
     if (!n) continue;
-    const size = clamp(Math.sqrt(n) * 1.1, 2.6, 6);
-    planeText(LABELS[li].name.toUpperCase(), [sx / n, .01, sz / n], [1, 0, 0], [0, 0, -1], size, LABELS[li].color, "center", 700);
+    planeText(LABELS[li].name.toUpperCase(), [sx / n, .01, sz / n], u, v, clamp(Math.sqrt(n) * 1.1, 2.6, 6), LABELS[li].color);
   }
 }
 
@@ -1163,8 +1571,7 @@ function drawHeat() {
   for (let i = 0; i < game.heatGrid.length; i++) {
     const v = game.heatGrid[i] / max; if (v < .03) continue;
     const c = i % COLS, r = Math.floor(i / COLS), x0 = c * CELL, z0 = r * CELL;
-    const hue = 220 - 220 * Math.pow(v, .6);
-    poly(quad([x0, .008, z0], [x0 + CELL, .008, z0], [x0 + CELL, .008, z0 + CELL], [x0, .008, z0 + CELL]), `hsla(${hue},95%,55%,${.25 + .45 * v})`);
+    poly(quad([x0, .008, z0], [x0 + CELL, .008, z0], [x0 + CELL, .008, z0 + CELL], [x0, .008, z0 + CELL]), `hsla(${220 - 220 * Math.pow(v, .6)},95%,55%,${.25 + .45 * v})`);
   }
 }
 
@@ -1180,7 +1587,7 @@ function drawBox(x0, x1, y0, y1, z0, z1, colors) {
   const vis = [];
   for (const f of faces) {
     const v = (CAM.x - f.ref[0]) * f.n[0] + (CAM.y - f.ref[1]) * f.n[1] + (CAM.z - f.ref[2]) * f.n[2];
-    if (v > 0) { poly(f.pts.map(p => P(...p)), f.c, colors.edge, 1); vis.push(f); }
+    if (v > 0) { poly(clipPoly(f.pts), f.c, colors.edge, 1); vis.push(f); }
   }
   return vis;
 }
@@ -1191,8 +1598,7 @@ function drawShelfSeg(s, g) {
   for (const f of vis) {
     if (f.n[0] === 0) continue;
     const side = f.n[0] < 0 ? 0 : 1, x = side ? sh.x1 + .01 : sh.x0 - .01;
-    // repisas
-    for (const y of [.12, .57, 1.02, 1.47]) { const a = P(x, y, z0), b = P(x, y, z1); ctx.strokeStyle = "#2b3133"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    for (const y of [.12, .57, 1.02, 1.47]) line([x, y, z0], [x, y, z1], "#2b3133", 2);
     for (const it of productsAt(s, g, side)) {
       if (!it.present) continue;
       const y = [.13, .58, 1.03][it.l], zz = z0 + .08 + it.k * .34;
@@ -1200,7 +1606,6 @@ function drawShelfSeg(s, g) {
     }
   }
 }
-
 function drawCounterSeg(i) {
   const L = (COUNTER.z1 - COUNTER.z0) / 3, z0 = COUNTER.z0 + i * L, z1 = z0 + L;
   drawBox(COUNTER.x0, COUNTER.x1, 0, COUNTER.h, z0, z1, { front: "#8a6a4a", side: "#6e5238", top: "#c9a77c", edge: "rgba(30,20,10,.5)" });
@@ -1209,51 +1614,89 @@ function drawCounterSeg(i) {
     poly(quad([7.8, 1.25, 3.85], [7.8, 1.25, 4.2], [7.8, 1.5, 4.2], [7.8, 1.5, 3.85]), "#3fa7c9", "#111", 1.5);
   }
 }
-
 function drawIsland() {
   drawBox(ISLAND.x0, ISLAND.x1, 0, ISLAND.h, ISLAND.z0, ISLAND.z1, { front: "#c9c2b0", side: "#a9a291", top: "#e7e1d1", edge: "rgba(40,36,30,.5)" });
   for (const it of ISLAND_ITEMS) drawBox(it.x, it.x + .22, ISLAND.h, ISLAND.h + .16, it.z, it.z + .24, { front: it.c, side: it.c, top: "#f4f1ea", edge: "rgba(0,0,0,.35)" });
-  poly(quad([ISLAND.x0 + .5, ISLAND.h + .2, ISLAND.z0 + .4], [ISLAND.x1 - .5, ISLAND.h + .2, ISLAND.z0 + .4], [ISLAND.x1 - .5, ISLAND.h + .55, ISLAND.z0 + .4], [ISLAND.x0 + .5, ISLAND.h + .55, ISLAND.z0 + .4]), "#ffd23f", "#6b5a12", 1.5);
-  planeText("2×1", [(ISLAND.x0 + ISLAND.x1) / 2, ISLAND.h + .375, ISLAND.z0 + .39], [1, 0, 0], [0, -1, 0], 2.6, "#5a2a0a");
+  const zs = ISLAND.z0 + .4;
+  poly(quad([ISLAND.x0 + .5, ISLAND.h + .2, zs], [ISLAND.x1 - .5, ISLAND.h + .2, zs], [ISLAND.x1 - .5, ISLAND.h + .55, zs], [ISLAND.x0 + .5, ISLAND.h + .55, zs]), "#ffd23f", "#6b5a12", 1.5);
+  signZ("2×1", (ISLAND.x0 + ISLAND.x1) / 2, ISLAND.h + .375, CAM.z < zs ? zs - .01 : zs + .01, 2.6, "#5a2a0a");
 }
-
 function drawRack() {
   const z = RACK.z, y = 1.5;
-  for (const x of [RACK.x0, RACK.x1]) { const a = P(x, 0, z), b = P(x, y, z); ctx.strokeStyle = "#3a3f42"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  for (const x of [RACK.x0, RACK.x1]) line([x, 0, z], [x, y, z], "#3a3f42", 3);
   const cols = ["#3d5e8c", "#c47b3a", "#8c3a4a", "#d9c2a3", "#5f7f4f", "#2b2b2b", "#7a4f8c", "#b5835a"];
   let i = 0;
-  for (let x = RACK.x0 + .1; x < RACK.x1 - .1; x += .14) {
-    const c = cols[i++ % cols.length];
-    poly(quad([x - .06, y - .05, z], [x + .06, y - .05, z], [x + .07, .62, z + .02], [x - .07, .62, z + .02]), c, "rgba(0,0,0,.25)");
+  for (let x = RACK.x0 + .1; x < RACK.x1 - .1; x += .14) poly(quad([x - .06, y - .05, z], [x + .06, y - .05, z], [x + .07, .62, z + .02], [x - .07, .62, z + .02]), cols[i++ % cols.length], "rgba(0,0,0,.25)");
+  line([RACK.x0, y, z], [RACK.x1, y, z], "#2a2e30", 3);
+}
+function drawCajaSign() {
+  for (const x of [7.5, 8.3]) line([x, 2.45, 4], [x, STORE.h, 4], "rgba(30,30,30,.7)", 1);
+  poly(quad([7.35, 2.1, 4], [8.45, 2.1, 4], [8.45, 2.45, 4], [7.35, 2.45, 4]), "#203038", "#0d1417", 2);
+  signZ("CAJA", 7.9, 2.275, CAM.z < 4 ? 3.99 : 4.01, 2.4, "#ffb547");
+}
+// Depósito
+function drawServer() {
+  const s = SERVER, bad = CAMS.some(c => c.hacked);
+  drawBox(s.x0, s.x1, 0, s.h, s.z0, s.z1, { front: "#1e2327", side: "#171b1e", top: "#2b3136", edge: "#0b0d0e" });
+  const z = s.z1 + .005;
+  for (let u = 0; u < 7; u++) {
+    const y = .25 + u * .22;
+    poly(quad([s.x0 + .04, y, z], [s.x1 - .04, y, z], [s.x1 - .04, y + .16, z], [s.x0 + .04, y + .16, z]), "#2a3036");
+    for (let k = 0; k < 4; k++) {
+      const on = Math.sin(nowT * (3 + u) + k * 1.7 + u) > 0, x = s.x1 - .08 - k * .06;
+      poly(quad([x, y + .06, z + .001], [x + .03, y + .06, z + .001], [x + .03, y + .1, z + .001], [x, y + .1, z + .001]), bad ? (on ? "#ff3b30" : "#5a1410") : on ? (k === 3 ? "#ffb547" : "#43e08a") : "#16301f");
+    }
   }
-  const a = P(RACK.x0, y, z), b = P(RACK.x1, y, z); ctx.strokeStyle = "#2a2e30"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  planeText("CEREBRO", [(s.x0 + s.x1) / 2, 1.82, z + .002], [-1, 0, 0], [0, -1, 0], .9, bad ? "#ff5a52" : "#43e08a", "center", 600, "JetBrains Mono");
+}
+function drawPallet() {
+  const p = PALLET;
+  drawBox(p.x0, p.x1, 0, .14, p.z0, p.z1, { front: "#a07a4a", side: "#8c6a3e", top: "#b58c58", edge: "rgba(40,25,10,.6)" });
+  const cols = ["#b98b55", "#c99b65", "#a87c4a"];
+  let k = 0;
+  for (const [x, z, y] of [[0, 0, 0], [.55, 0, 0], [0, .55, 0], [.55, .55, 0], [0, 0, .42], [.55, .55, .42]]) {
+    const c = cols[k++ % 3];
+    drawBox(p.x0 + x + .02, p.x0 + x + .52, .14 + y, .14 + y + .4, p.z0 + z + .02, p.z0 + z + .52, { front: c, side: c, top: "#d2ae7c", edge: "rgba(60,40,20,.55)" });
+  }
+}
+function drawDRack(r) {
+  drawBox(r.x0, r.x1, 0, r.h, r.z0, r.z1, { front: "#566064", side: "#454e52", top: "#6d777b", edge: "rgba(20,24,25,.6)" });
+  const alongX = r.x1 - r.x0 > r.z1 - r.z0;
+  for (const y of [.1, .75, 1.4]) {
+    const n = Math.floor((alongX ? r.x1 - r.x0 : r.z1 - r.z0) / .5);
+    for (let i = 0; i < n; i++) {
+      const c = ["#b98b55", "#c99b65", "#a87c4a"][(i + Math.round(y * 10)) % 3];
+      if (alongX) { const zf = CAM.z > r.z1 ? r.z1 + .01 : r.z0 - .01, x = r.x0 + .05 + i * .5; poly(quad([x, y, zf], [x + .42, y, zf], [x + .42, y + .45, zf], [x, y + .45, zf]), c, "rgba(60,40,20,.5)"); }
+      else { const xf = CAM.x > r.x1 ? r.x1 + .01 : r.x0 - .01, z = r.z0 + .05 + i * .5; poly(quad([xf, y, z], [xf, y, z + .42], [xf, y + .45, z + .42], [xf, y + .45, z]), c, "rgba(60,40,20,.5)"); }
+    }
+  }
+}
+function drawCamProp(c) {
+  drawBox(c.x - .12, c.x + .12, c.y - .1, c.y + .1, c.z - .12, c.z + .12, { front: "#e3e6e2", side: "#c9ccc8", top: "#f2f4f1", edge: "#555" });
+  const p = P(c.x, c.y - .05, c.z); if (p.d > .5) { ctx.fillStyle = Math.floor(nowT * 2) % 2 ? "#ff3b30" : "#5a1410"; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.5, 30 / p.d), 0, Math.PI * 2); ctx.fill(); }
 }
 
 // Figura humana en unidades locales (pies en 0, cabeza en −170).
 function rr(x, y, w, h, r, c) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = c; ctx.fill(); }
 function circ(x, y, r, c) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); }
-function drawFigure(p, mannequin) {
-  const L = p.look, back = p.faceBack, walk = p.moving ? Math.sin(p.phase) : 0;
+function drawFigure(p, mannequinFig, back, reachDir) {
+  const L = p.look, walk = p.moving ? Math.sin(p.phase) : 0;
   ctx.beginPath(); ctx.ellipse(0, 0, 24, 7, 0, 0, Math.PI * 2); ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fill();
-  if (mannequin) {
+  if (mannequinFig) {
     ctx.beginPath(); ctx.ellipse(0, 0, 20, 5, 0, 0, Math.PI * 2); ctx.fillStyle = "#9aa3a5"; ctx.fill();
     rr(-2, -40, 4, 40, 2, "#7c8486");
   }
   const torso = L.hoodie || L.shirt;
   const lift1 = Math.max(0, walk) * 7, lift2 = Math.max(0, -walk) * 7;
-  // piernas
-  const legC = mannequin ? L.skin : L.pants;
-  rr(-12, -84, 10, 84 - lift1 - (mannequin ? 40 : 0), 3, legC);
-  rr(2, -84, 10, 84 - lift2 - (mannequin ? 40 : 0), 3, legC);
-  if (!mannequin) { rr(-13, -7 - lift1, 12, 7, 2, L.shoes); rr(1, -7 - lift2, 12, 7, 2, L.shoes); }
-  // pelo largo por detrás (de frente)
+  const legC = mannequinFig ? L.skin : L.pants;
+  rr(-12, -84, 10, 84 - lift1 - (mannequinFig ? 40 : 0), 3, legC);
+  rr(2, -84, 10, 84 - lift2 - (mannequinFig ? 40 : 0), 3, legC);
+  if (!mannequinFig) { rr(-13, -7 - lift1, 12, 7, 2, L.shoes); rr(1, -7 - lift2, 12, 7, 2, L.shoes); }
   const hx = p.headTurn * 3.2;
   if (!back && ["largo", "melena"].includes(L.hairStyle) && !L.hood) rr(-15 + hx, -170, 30, L.hairStyle === "largo" ? 44 : 30, 9, L.hair);
-  // vestido
   if (L.dress) { ctx.beginPath(); ctx.moveTo(-16, -138); ctx.lineTo(16, -138); ctx.lineTo(23, -58); ctx.lineTo(-23, -58); ctx.closePath(); ctx.fillStyle = L.dress; ctx.fill(); }
-  // torso
   rr(-18, -143, 36, 64, 9, L.dress || torso);
-  if (L.hoodie && !back) { rr(-11, -112, 22, 12, 4, "rgba(0,0,0,.22)"); }
+  if (L.hoodie && !back) rr(-11, -112, 22, 12, 4, "rgba(0,0,0,.22)");
   if (L.police) {
     rr(-18, -88, 36, 5, 1, "#0d0d0d");
     if (back) { ctx.font = '700 8.5px "Chakra Petch", sans-serif'; ctx.textAlign = "center"; ctx.fillStyle = "#e9eef0"; ctx.fillText("POLICÍA", 0, -118); ctx.textAlign = "left"; }
@@ -1264,7 +1707,6 @@ function drawFigure(p, mannequin) {
     else { rr(-17, -141, 13, 56, 6, "#ff7a1a"); rr(4, -141, 13, 56, 6, "#ff7a1a"); rr(-12, -132, 7, 5, 1, "#e9eef0"); }
     rr(-17, -104, 34, 5, 1, "rgba(235,245,248,.9)");
   }
-  // brazos
   const swing = walk * .38;
   const arm = (side, ang, len = 56) => {
     ctx.save(); ctx.translate(side * 20, -138); ctx.rotate(ang);
@@ -1272,12 +1714,11 @@ function drawFigure(p, mannequin) {
     ctx.restore();
   };
   const reach = p.anim === "reach" || p.anim === "stock";
-  const reachDir = (p.place && p.place.look) || 1;
   if (p.cuffed) {
     arm(-1, -.2, 50); arm(1, .2, 50);
     ctx.strokeStyle = "#c9d1d4"; ctx.lineWidth = 2.2;
     ctx.beginPath(); ctx.arc(-4, -88, 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(4, -88, 3.5, 0, Math.PI * 2); ctx.stroke();
-  } else if (p.box && !p.cashier && p.moving) {
+  } else if (p.box && !p.cashier && (p.moving || p.anim === "stock")) {
     arm(-1, -.55, 46); arm(1, .55, 46);
     rr(-20, -122, 40, 30, 3, "#b98b55"); rr(-20, -110, 40, 4, 1, "#d8c49a");
   } else if (reach) {
@@ -1293,7 +1734,6 @@ function drawFigure(p, mannequin) {
   } else {
     arm(-1, .08 + swing); arm(1, -.08 - swing);
   }
-  // canasto / bolsa
   if (p.basket) {
     const bx = -34 + (p.moving ? swing * 12 : 0);
     ctx.strokeStyle = "#7a1f1f"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bx + 8, -86, 9, Math.PI, 0); ctx.stroke();
@@ -1301,7 +1741,6 @@ function drawFigure(p, mannequin) {
     for (let i = 0; i < Math.min(4, p.basketItems); i++) rr(bx - 2 + i * 5, -92, 5, 7, 1, PROD_COLORS[(p.id + i) % PROD_COLORS.length]);
   }
   if (p.bag) { rr(24, -92, 16, 22, 2, "#d9c49c"); ctx.strokeStyle = "#8a7550"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(32, -92, 5, Math.PI, 0); ctx.stroke(); }
-  // cuello y cabeza
   rr(-5, -151, 10, 10, 3, L.skin);
   if (L.hood) circ(hx * .5, -157, 16.5, L.hoodie);
   circ(hx, -158, 12, L.skin);
@@ -1309,9 +1748,7 @@ function drawFigure(p, mannequin) {
     if (back) circ(hx * .5, -158, 15.5, L.hoodie);
     else { ctx.beginPath(); ctx.arc(hx * .5, -157, 16.5, Math.PI * 1.02, Math.PI * 1.98); ctx.lineWidth = 6; ctx.strokeStyle = L.hoodie; ctx.stroke(); }
     if (p.gender === "M" && !back) { rr(-13 + hx, -152, 4, 16, 2, L.hair); rr(9 + hx, -152, 4, 16, 2, L.hair); }
-  } else if (mannequin) {
-    // cabeza lisa
-  } else {
+  } else if (!mannequinFig) {
     const hs = L.hairStyle;
     if (back) {
       circ(hx, -159, 12.6, L.hair);
@@ -1321,7 +1758,7 @@ function drawFigure(p, mannequin) {
       if (hs === "rodete") circ(hx, -164, 7, L.hair);
     } else {
       ctx.beginPath(); ctx.arc(hx, -159, hs === "rapado" ? 12.2 : 12.8, Math.PI * (hs === "rapado" ? 1.1 : 1.0), Math.PI * (hs === "rapado" ? 1.9 : 2.0)); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill();
-      if (hs === "cola") { rr(9 + hx, -166, 6, 22, 3, L.hair); }
+      if (hs === "cola") rr(9 + hx, -166, 6, 22, 3, L.hair);
       if (hs === "rodete") circ(hx, -172, 6.5, L.hair);
       if (hs === "largo" || hs === "melena") { rr(-13 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); rr(7 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); }
       if (L.beard) { ctx.beginPath(); ctx.arc(hx, -154, 9.5, Math.PI * .05, Math.PI * .95); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill(); }
@@ -1336,124 +1773,180 @@ function drawFigure(p, mannequin) {
   if (L.glasses && !back) rr(hx - 8 + p.headTurn * 1.5, -162, 16, 5, 2, "#0d0d0d");
 }
 
-function drawPerson(p) {
-  const f = proj(p.x, 0, p.z), t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
+function drawPerson(p, portal, isMannequin) {
+  const f = proj(p.x, 0, p.z); if (f.d < .35) return;
+  const t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
+  const back = p.fx * CAM.fwd.x + p.fz * CAM.fwd.z > .25;
+  let reachDir = 1;
+  const look = p.place && p.place.look;
+  if (look) { const a = proj(p.x, 1, p.z), b = proj(p.x + look * .5, 1, p.z); reachDir = b.x >= a.x ? 1 : -1; }
   ctx.save();
-  if (p.x < 0.05) { // detrás de la puerta: solo se ve por el vidrio
-    ctx.beginPath(); quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]).forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.clip();
-  } else if (p.z > STORE.d - .02) {
-    ctx.beginPath(); quad([8.65, 0, STORE.d], [9.75, 0, STORE.d], [9.75, 2.2, STORE.d], [8.65, 2.2, STORE.d]).forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.clip();
+  if (portal && portal !== "same") {
+    const q = clipPoly(PORTALS[portal]); if (q.length < 3) { ctx.restore(); return; }
+    ctx.beginPath(); q.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath(); ctx.clip();
   }
   ctx.translate(f.x, f.y); ctx.scale(s, s);
-  drawFigure(p, false);
+  drawFigure(p, isMannequin, back, reachDir);
   ctx.restore();
-}
-const mannequin = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78, look: { skin: "#e6e2da", hair: "#e6e2da", hairStyle: "none", shirt: "#e6e2da", pants: "#e6e2da", dress: "#2f4f6f", shoes: "#e6e2da" }, faceBack: false, moving: false, headTurn: .6, phase: 0, anim: null, gender: "M" };
-function drawMannequin() {
-  const f = proj(mannequin.x, 0, mannequin.z), t = proj(mannequin.x, mannequin.h, mannequin.z), s = (f.y - t.y) / 170;
-  ctx.save(); ctx.translate(f.x, f.y); ctx.scale(s, s); drawFigure(mannequin, true); ctx.restore();
 }
 
 // Orden de dibujo: topológico entre objetos que se superponen en pantalla.
-function footprintFront(A, B) { // ¿A está delante de B?
-  if (A.z1 <= B.z0) return true; if (B.z1 <= A.z0) return false;
+function footprintFront(A, B) { // ¿A está delante de B, visto desde CAM?
+  if (A.z1 <= B.z0) return CAM.z < (A.z1 + B.z0) / 2;
+  if (B.z1 <= A.z0) return CAM.z > (B.z1 + A.z0) / 2;
   if (A.x1 <= B.x0) return CAM.x < (A.x1 + B.x0) / 2;
   if (B.x1 <= A.x0) return CAM.x > (B.x1 + A.x0) / 2;
   return A.d < B.d;
 }
+const boxToSb = b => ({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h });
 function sortedDrawables() {
   const list = [];
   const add = (fp, draw, sb) => list.push({ ...fp, draw, sb, d: proj((fp.x0 + fp.x1) / 2, 0, (fp.z0 + fp.z1) / 2).d });
   const sbBox = (x0, x1, y1, z0, z1) => {
-    let a = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 };
+    const a = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 };
     for (const x of [x0, x1]) for (const y of [0, y1]) for (const z of [z0, z1]) { const q = P(x, y, z); a.x0 = Math.min(a.x0, q.x); a.x1 = Math.max(a.x1, q.x); a.y0 = Math.min(a.y0, q.y); a.y1 = Math.max(a.y1, q.y); }
     return a;
   };
-  for (let s = 0; s < 2; s++) for (let g = 0; g < NSEG; g++) {
-    const sh = SHELVES[s], z0 = SEG_Z0 + g * SEG_L, z1 = z0 + SEG_L;
-    add({ x0: sh.x0, x1: sh.x1, z0, z1 }, () => drawShelfSeg(s, g), sbBox(sh.x0, sh.x1, SHELF_H, z0, z1));
+  const boxItem = (b, h, draw) => add({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 }, draw, sbBox(b.x0, b.x1, h, b.z0, b.z1));
+  if (CAM.room === "salon") {
+    for (let s = 0; s < 2; s++) for (let g = 0; g < NSEG; g++) {
+      const sh = SHELVES[s], z0 = SEG_Z0 + g * SEG_L;
+      boxItem({ x0: sh.x0, x1: sh.x1, z0, z1: z0 + SEG_L }, SHELF_H, () => drawShelfSeg(s, g));
+    }
+    for (let i = 0; i < 3; i++) {
+      const L = (COUNTER.z1 - COUNTER.z0) / 3, z0 = COUNTER.z0 + i * L;
+      boxItem({ x0: COUNTER.x0, x1: COUNTER.x1, z0, z1: z0 + L }, 1.5, () => drawCounterSeg(i));
+    }
+    boxItem(ISLAND, 1.4, drawIsland);
+    add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
+    add({ x0: MANNEQUIN_POS.x - .25, x1: MANNEQUIN_POS.x + .25, z0: MANNEQUIN_POS.z - .2, z1: MANNEQUIN_POS.z + .2 }, () => drawPerson(mannequin, "same", true), boxToSb(mannequinBox()));
+  } else {
+    boxItem(SERVER, SERVER.h, drawServer);
+    boxItem(PALLET, 1.0, drawPallet);
+    for (const r of DRACKS) boxItem(r, r.h, () => drawDRack(r));
   }
-  for (let i = 0; i < 3; i++) {
-    const L = (COUNTER.z1 - COUNTER.z0) / 3, z0 = COUNTER.z0 + i * L;
-    add({ x0: COUNTER.x0, x1: COUNTER.x1, z0, z1: z0 + L }, () => drawCounterSeg(i), sbBox(COUNTER.x0, COUNTER.x1, 1.5, z0, z0 + L));
+  for (const c of CAMS) if (c !== CAM && c.room === CAM.room) add({ x0: c.x - .12, x1: c.x + .12, z0: c.z - .12, z1: c.z + .12 }, () => drawCamProp(c), sbBox(c.x - .12, c.x + .12, c.y + .1, c.z - .12, c.z + .12));
+  for (const p of [...people, ...cops]) {
+    const portal = portalFor(CAM.room, roomOf(p.x, p.z)); if (!portal) continue;
+    if (proj(p.x, 0, p.z).d < .35) continue;
+    add({ x0: p.x - .22, x1: p.x + .22, z0: p.z - .18, z1: p.z + .18 }, () => drawPerson(p, portal, false), boxToSb(personBox(p)));
   }
-  add({ x0: ISLAND.x0, x1: ISLAND.x1, z0: ISLAND.z0, z1: ISLAND.z1 }, drawIsland, sbBox(ISLAND.x0, ISLAND.x1, 1.4, ISLAND.z0, ISLAND.z1));
-  add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
-  add({ x0: MANNEQUIN_POS.x - .25, x1: MANNEQUIN_POS.x + .25, z0: MANNEQUIN_POS.z - .2, z1: MANNEQUIN_POS.z + .2 }, drawMannequin, boxToSb(mannequinBox()));
-  for (const p of [...people, ...cops]) add({ x0: p.x - .22, x1: p.x + .22, z0: p.z - .18, z1: p.z + .18 }, () => drawPerson(p), boxToSb(personBox(p)));
-  // Kahn: arista B→A si B está detrás de A y se superponen en pantalla
   const n = list.length, indeg = new Array(n).fill(0), out = list.map(() => []);
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
     const a = list[i].sb, b = list[j].sb;
     if (a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0) continue;
     if (footprintFront(list[i], list[j])) { out[j].push(i); indeg[i]++; } else { out[i].push(j); indeg[j]++; }
   }
-  const order = [], ready = [];
+  const order = [], ready = [], done = new Array(n).fill(false);
   for (let i = 0; i < n; i++) if (!indeg[i]) ready.push(i);
-  const done = new Array(n).fill(false);
   while (order.length < n) {
-    if (!ready.length) { // ciclo: tomar el más lejano pendiente
-      let k = -1; for (let i = 0; i < n; i++) if (!done[i] && (k < 0 || list[i].d > list[k].d)) k = i; ready.push(k);
-    }
+    if (!ready.length) { let k = -1; for (let i = 0; i < n; i++) if (!done[i] && (k < 0 || list[i].d > list[k].d)) k = i; ready.push(k); }
     ready.sort((a, b) => list[b].d - list[a].d);
     const i = ready.shift(); if (done[i]) continue; done[i] = true; order.push(list[i]);
     for (const j of out[i]) if (--indeg[j] === 0 && !done[j]) ready.push(j);
   }
   return order;
 }
-const boxToSb = b => ({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h });
 
 function drawTracks(time) {
   ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.textBaseline = "alphabetic";
   for (const p of people) {
-    if (!p.track) continue;
+    if (!p.track || !inView(CAM, p)) continue;
     const b = personBox(p), tr = p.track;
     let col = "#43e08a";
     if (tr.type === "empleado") col = "#52c7ff";
     if (tr.type === "ladron") col = (Math.floor(time * 4) % 2) ? "#ff5a52" : "#ff9a94";
     if (p.cuffed) col = "#ff5a52";
     ctx.strokeStyle = col; ctx.lineWidth = 2;
-    if (!tr.type || !tr.gender) ctx.setLineDash([7, 4]); else ctx.setLineDash([]);
+    ctx.setLineDash(!tr.type || !tr.gender ? [7, 4] : []);
     ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]);
-    const label = `ID ${String(tr.id).padStart(2, "0")} · ${tr.gender || "?"} · ${p.cuffed ? "DETENIDO" : tr.type ? { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" }[tr.type] : "?"}`;
+    const label = `ID ${idStr(p)} · ${tr.gender || "?"} · ${p.cuffed ? "DETENIDO" : tr.type ? { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" }[tr.type] : "?"}`;
     const tw = ctx.measureText(label).width + 10;
     ctx.fillStyle = col; ctx.fillRect(b.x - 1, b.y - 18, tw, 17);
     ctx.fillStyle = "#08100c"; ctx.fillText(label, b.x + 4, b.y - 5);
   }
 }
 
+// Escena 3D sola (sin HUD) desde CAM, en ctx. La usan la pantalla, las miniaturas y el rompecabezas.
+function drawScene(opts) {
+  resetT();
+  if (CAM.room === "salon") { drawSalon(); drawZones(); if (game.heat) drawHeat(); }
+  else drawDeposit();
+  for (const d of sortedDrawables()) d.draw();
+  if (CAM.room === "salon") drawCajaSign();
+  if (opts.tracks) drawTracks(nowT);
+}
+function renderView(c2d, cam, scale, opts) {
+  const keep = [ctx, SC, CAM];
+  ctx = c2d; SC = scale; CAM = cam;
+  drawScene(opts);
+  [ctx, SC, CAM] = keep;
+}
+function drawThumb(i) {
+  const cam = CAMS[i], t = thumbs[i];
+  if (cam.hacked) {
+    t.ctx.setTransform(1, 0, 0, 1, 0, 0); t.ctx.imageSmoothingEnabled = false;
+    t.ctx.drawImage(pick(STATIC), 0, 0, 240, 180); t.ctx.imageSmoothingEnabled = true;
+    t.ctx.fillStyle = "rgba(120,0,0,.55)"; t.ctx.fillRect(0, 70, 240, 40);
+    t.ctx.fillStyle = "#fff"; t.ctx.font = '700 16px "Chakra Petch", sans-serif'; t.ctx.textAlign = "center"; t.ctx.fillText("SIN SEÑAL", 120, 96);
+    return;
+  }
+  renderView(t.ctx, cam, 240 / W, { tracks: true });
+  t.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (game.state === "play" && Math.floor(nowT * 1.6) % 2) { t.ctx.fillStyle = "#ff3b30"; t.ctx.beginPath(); t.ctx.arc(12, 12, 4, 0, Math.PI * 2); t.ctx.fill(); }
+}
+
+function drawGlitch(time) {
+  resetT();
+  const h = curCam.hacked;
+  ctx.globalAlpha = .6; ctx.imageSmoothingEnabled = false; ctx.drawImage(pick(STATIC), 0, 0, W, H); ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1;
+  for (let i = 0; i < 7; i++) {
+    const y = Math.random() * H, hh = 6 + Math.random() * 36, dx = (Math.random() - .5) * 120;
+    ctx.drawImage(ctx.canvas, 0, y * SC, W * SC, hh * SC, dx, y, W, hh);
+  }
+  ctx.fillStyle = `rgba(255,30,60,${.1 + .06 * Math.sin(time * 9)})`; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(12,0,0,.82)"; ctx.fillRect(W / 2 - 310, H / 2 - 92, 620, 122);
+  ctx.strokeStyle = "#ff5a52"; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - 310, H / 2 - 92, 620, 122);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = '700 34px "Chakra Petch", sans-serif'; ctx.fillStyle = Math.floor(time * 2) % 2 ? "#ff5a52" : "#ffd0cc";
+  ctx.fillText("⚠ INTRUSIÓN DETECTADA", W / 2, H / 2 - 56);
+  ctx.font = '400 14px "JetBrains Mono", monospace'; ctx.fillStyle = "#f2d6d4";
+  ctx.fillText(`Acceso no autorizado desde ${h.ip} · ${Math.floor(game.t - h.since)} s sin señal`, W / 2, H / 2 - 20);
+  ctx.fillText("Repará la cámara o seguí con las otras", W / 2, H / 2 + 6);
+  ctx.textAlign = "left";
+}
+
 function drawHud(time) {
   const cfg = levelCfg(game.level);
   resetT();
-  // ruido y líneas
-  if (!scanPat) scanPat = ctx.createPattern(scan, "repeat");
-  ctx.fillStyle = scanPat; ctx.fillRect(0, 0, W, H);
-  ctx.globalAlpha = .9; ctx.drawImage(noise, -Math.random() * 256, -Math.random() * 256, W + 256 * 2, H + 256 * 2); ctx.globalAlpha = 1;
+  ctx.fillStyle = drawHud.pat || (drawHud.pat = ctx.createPattern(scan, "repeat")); ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = .9; ctx.drawImage(noise, -Math.random() * 256, -Math.random() * 256, W + 512, H + 512); ctx.globalAlpha = 1;
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .85); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.55)");
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-  // esquinas de visor
   ctx.strokeStyle = "rgba(240,245,240,.85)"; ctx.lineWidth = 3;
   const m = 26, l = 46;
   for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) { ctx.beginPath(); ctx.moveTo(x, y + sy * l); ctx.lineTo(x, y); ctx.lineTo(x + sx * l, y); ctx.stroke(); }
   ctx.strokeStyle = "rgba(240,245,240,.35)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(W / 2 - 12, H / 2); ctx.lineTo(W / 2 + 12, H / 2); ctx.moveTo(W / 2, H / 2 - 12); ctx.lineTo(W / 2, H / 2 + 12); ctx.stroke();
-  // REC
   ctx.font = '600 22px "JetBrains Mono", monospace'; ctx.textBaseline = "middle"; ctx.textAlign = "left";
-  const recOn = game.state === "play" && !game.paused;
+  const recOn = game.state === "play" && !game.paused && !curCam.hacked;
   if (!recOn || Math.floor(time * 1.6) % 2) circ(52, 58, 8, recOn ? "#ff3b30" : "#9aa3a5");
-  ctx.fillStyle = "#f2f5f2"; ctx.fillText(recOn ? "REC" : game.state === "setup" ? "CALIBRANDO" : "STBY", 68, 59);
-  ctx.font = '400 13px "JetBrains Mono", monospace'; ctx.fillStyle = "rgba(242,245,242,.8)"; ctx.fillText("CAM-01 · SALÓN PRINCIPAL", 46, 86);
-  // señal y batería
-  for (let i = 0; i < 4; i++) { ctx.fillStyle = i < 3 || Math.floor(time) % 3 ? "#f2f5f2" : "rgba(242,245,242,.3)"; ctx.fillRect(W - 120 + i * 11, 66 - i * 6, 7, 8 + i * 6); }
+  ctx.fillStyle = "#f2f5f2"; ctx.fillText(curCam.hacked ? "SIN SEÑAL" : recOn ? "REC" : game.state === "setup" ? "CALIBRANDO" : "STBY", 68, 59);
+  ctx.font = '400 13px "JetBrains Mono", monospace'; ctx.fillStyle = "rgba(242,245,242,.8)"; ctx.fillText(`${camTag(curCam)} · ${curCam.name.toUpperCase()}`, 46, 86);
+  for (let i = 0; i < 4; i++) { ctx.fillStyle = curCam.hacked ? (i === 0 ? "#ff5a52" : "rgba(242,245,242,.2)") : i < 3 || Math.floor(time) % 3 ? "#f2f5f2" : "rgba(242,245,242,.3)"; ctx.fillRect(W - 120 + i * 11, 66 - i * 6, 7, 8 + i * 6); }
   ctx.strokeStyle = "#f2f5f2"; ctx.lineWidth = 2; ctx.strokeRect(W - 70, 52, 26, 14); ctx.fillStyle = "#f2f5f2"; ctx.fillRect(W - 44, 56, 3, 6); ctx.fillRect(W - 67, 55, 16, 8);
-  // fecha y hora
   ctx.font = '400 15px "JetBrains Mono", monospace'; ctx.fillStyle = "#f2f5f2"; ctx.textAlign = "left";
   ctx.fillText(`12/10/2026  ${fmtClock(cfg.start + game.t * 60)}`, 46, H - 52);
   ctx.textAlign = "right"; ctx.fillStyle = "rgba(242,245,242,.75)"; ctx.font = '400 12px "JetBrains Mono", monospace';
   ctx.fillText("640×480 · RE-ID ON · LEANVISION", W - 46, H - 52);
-  // modo
   ctx.textAlign = "center"; ctx.font = '600 13px "JetBrains Mono", monospace';
-  const modeTxt = game.paused ? "‖ EN PAUSA" : game.mode === "zones" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : game.qte ? "● ARRESTO EN CURSO" : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : cops.some(c => c.mode === "chase") ? "POLICÍA EN CAMINO" : game.state === "play" ? "MODO DETECCIÓN" : "";
+  const modeTxt = game.paused ? "‖ EN PAUSA" : curCam.hacked ? "" : game.mode === "zones" ? (curCam.room === "salon" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : "LAS ZONAS SE PINTAN EN EL SALÓN") : game.qte ? "● ARRESTO EN CURSO" : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : cops.some(c => c.mode === "chase") ? "POLICÍA EN CAMINO" : game.state === "play" ? "MODO DETECCIÓN" : "";
   if (modeTxt) { const w = ctx.measureText(modeTxt).width + 20; ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(W / 2 - w / 2, 44, w, 24); ctx.fillStyle = game.mode === "zones" ? "#ffb547" : "#f2f5f2"; ctx.fillText(modeTxt, W / 2, 57); }
+  const other = CAMS.find(c => c !== curCam && c.hacked);
+  if (game.state === "play" && other && !curCam.hacked) {
+    const msg = `⚠ ${camTag(other)} HACKEADA · tocá su miniatura para repararla`;
+    ctx.font = '600 13px "JetBrains Mono", monospace'; const w = ctx.measureText(msg).width + 24;
+    ctx.fillStyle = Math.floor(time * 2) % 2 ? "rgba(140,10,10,.8)" : "rgba(60,0,0,.8)"; ctx.fillRect(W / 2 - w / 2, 74, w, 24); ctx.fillStyle = "#ffd0cc"; ctx.fillText(msg, W / 2, 87);
+  }
   if (game.state === "setup") {
     const msg = "Pintá las zonas sobre el piso · después tocá INICIAR TURNO";
     ctx.font = '600 14px "JetBrains Mono", monospace'; const w = ctx.measureText(msg).width + 24;
@@ -1463,17 +1956,9 @@ function drawHud(time) {
 }
 
 function render(time) {
-  resetT();
-  drawRoom(time);
-  drawZones();
-  if (game.heat) drawHeat();
-  for (const d of sortedDrawables()) d.draw();
-  // cartel CAJA colgante
-  for (const x of [7.5, 8.3]) { const a = P(x, 2.45, 4), b = P(x, STORE.h, 4); ctx.strokeStyle = "rgba(30,30,30,.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-  poly(quad([7.35, 2.1, 4], [8.45, 2.1, 4], [8.45, 2.45, 4], [7.35, 2.45, 4]), "#203038", "#0d1417", 2);
-  planeText("CAJA", [7.9, 2.275, 3.99], [1, 0, 0], [0, -1, 0], 2.4, "#ffb547");
-  drawTracks(time);
-  if (game.qte) {
+  ctx = mainCtx; SC = DPR; CAM = curCam;
+  drawScene({ tracks: !curCam.hacked });
+  if (game.qte && inView(curCam, game.qte.s)) {
     const a = personBox(game.qte.s), b = personBox(game.qte.c);
     const cx = (a.x + a.w / 2 + b.x + b.w / 2) / 2, cy = (a.y + a.h / 2 + b.y + b.h / 2) / 2, r = Math.max(a.h, b.h) * 1.05 + Math.abs(a.x - b.x) / 2;
     ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, r, 0, Math.PI * 2, true); ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fill("evenodd");
@@ -1484,28 +1969,25 @@ function render(time) {
     g.addColorStop(0, red ? "rgba(255,50,50,.42)" : "rgba(60,110,255,.42)"); g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, 110);
   }
-  // recuadro en curso
   if (drag && !drag.zone) {
     const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
     ctx.fillStyle = "rgba(67,224,138,.12)"; ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = "#43e08a"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
   }
   for (const f of flashes) { ctx.globalAlpha = 1 - f.t / .6; ctx.strokeStyle = f.color; ctx.lineWidth = 2.5; ctx.strokeRect(f.b.x, f.b.y, f.b.w, f.b.h); ctx.globalAlpha = 1; }
-  // textos flotantes
+  const cfg = levelCfg(game.level);
+  if (cfg.flicker && game.state === "play" && Math.sin(time * 1.3) > .985 - cfg.flicker * .02) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); }
+  if (curCam.hacked) drawGlitch(time);
+  drawHud(time);
   ctx.font = '700 15px "Chakra Petch", sans-serif'; ctx.textAlign = "center";
   for (const f of floats) {
     ctx.globalAlpha = clamp(1.8 - f.t, 0, 1); const y = f.y - f.t * 26;
     ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText(f.txt, f.x, y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, y);
   }
   ctx.globalAlpha = 1; ctx.textAlign = "left";
-  // parpadeo de luz en hora pico
-  const cfg = levelCfg(game.level);
-  if (cfg.flicker && game.state === "play" && Math.sin(time * 1.3) > .985 - cfg.flicker * .02) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); }
-  drawHud(time);
 }
 
 // ───────────────────────── Panel lateral y HUD
-const $ = id => document.getElementById(id);
 function updateHud() {
   const cfg = levelCfg(game.level), S = game.stats || freshStats();
   $("hudLevel").textContent = `${game.level + 1} · ${cfg.name}`;
@@ -1514,13 +1996,14 @@ function updateHud() {
   $("hudScore").textContent = game.score.toLocaleString("es-AR");
   if (game.score > game.best) { game.best = game.score; try { localStorage.setItem("lv-camara-best", String(game.best)); } catch (e) { } }
   $("hudBest").textContent = game.best.toLocaleString("es-AR");
-  $("sIn").textContent = people.filter(p => p.x > 0 && p.z < STORE.d).length;
+  $("sIn").textContent = people.filter(p => { const r = roomOf(p.x, p.z); return r === "salon" || r === "dep"; }).length;
   $("sDet").textContent = S.tp;
   $("sMiss").textContent = S.missed;
   $("sThief").textContent = `${S.caught} / ${S.thieves}`;
   const att = S.tp + S.fp + S.mannequin;
   $("sPrec").textContent = att ? Math.round(100 * S.tp / att) + "%" : "—";
-  $("sIou").textContent = S.ious.length ? (S.ious.reduce((a, b) => a + b, 0) / S.ious.length).toFixed(2) : "—";
+  const ok = CAMS.filter(c => !c.hacked).length;
+  $("sCams").textContent = `${ok} / ${CAMS.length}`; $("sCams").className = ok < CAMS.length ? "bad" : "";
 }
 function renderMissions() {
   const ul = $("missions"); ul.innerHTML = "";
@@ -1541,9 +2024,7 @@ LABELS.forEach((L, i) => {
   b.onclick = () => { game.label = i; game.erase = false; syncTools(); };
   chipsEl.appendChild(b);
 });
-function setMode(m) {
-  game.mode = m; if (m === "zones") closePopup(); syncTools();
-}
+function setMode(m) { game.mode = m; if (m === "zones") closePopup(); syncTools(); }
 function syncTools() {
   const z = game.mode === "zones";
   $("mDetect").setAttribute("aria-pressed", String(!z)); $("mZones").setAttribute("aria-pressed", String(z));
@@ -1551,12 +2032,12 @@ function syncTools() {
   chipsEl.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(!game.erase && +b.dataset.i === game.label)));
   $("tErase").setAttribute("aria-pressed", String(game.erase));
   $("tBrush").textContent = game.brush === 2 ? "Pincel 1 m" : "Pincel 0,5 m";
-  $("tBrush").setAttribute("aria-pressed", "false");
   $("tHeat").setAttribute("aria-pressed", String(game.heat));
   $("btnStart").hidden = game.state !== "setup";
   $("btnPause").hidden = game.state !== "play";
   $("btnPause").textContent = game.paused ? "Seguir" : "Pausa";
   cv.classList.toggle("paint", z);
+  syncHackUi();
 }
 $("mDetect").onclick = () => { if (game.state === "setup") return; setMode("detect"); };
 $("mZones").onclick = () => setMode("zones");
@@ -1568,7 +2049,7 @@ $("btnStart").onclick = () => startShift();
 $("btnIntro").onclick = () => { $("intro").hidden = true; enterSetup(); };
 
 function enterSetup() {
-  game.state = "setup"; game.paused = false; setupLevel(); game.brush = 2; setMode("zones");
+  game.state = "setup"; game.paused = false; setupLevel(); game.brush = 2; switchCam(0); setMode("zones");
 }
 function startShift() {
   game.state = "play"; setMode("detect"); logEvent("Turno iniciado · REC", "", ""); syncTools();
@@ -1582,6 +2063,7 @@ document.addEventListener("keydown", e => {
     if (map[k]) { e.preventDefault(); if (!e.repeat) qteKey(map[k]); }
     return;
   }
+  if (fix) { if (k === "escape") closeFix(); return; }
   if (popFor) {
     if (k === "h") return chooseGender("H");
     if (k === "m") return chooseGender("M");
@@ -1590,10 +2072,14 @@ document.addEventListener("keydown", e => {
     if (k === "l") return chooseType("ladron");
     if (k === "escape") return closePopup();
   }
-  if (k === "z" && (game.state === "play" || game.state === "setup")) setMode(game.mode === "zones" && game.state === "play" ? "detect" : "zones");
+  const live = game.state === "play" || game.state === "setup";
+  if (k === "z" && live) setMode(game.mode === "zones" && game.state === "play" ? "detect" : "zones");
   if (k === "d" && game.state === "play") setMode("detect");
   if (k === "p" && game.state === "play") { game.paused = !game.paused; syncTools(); }
+  if (k === "r" && game.state === "play") openFix();
+  if (k === "v" && live) switchCam((CAMS.indexOf(curCam) + 1) % CAMS.length);
   if (game.mode === "zones" && k >= "1" && k <= "5") { game.label = +k - 1; game.erase = false; syncTools(); }
+  else if (live && k >= "1" && k <= String(CAMS.length)) switchCam(+k - 1);
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden && game.state === "play") { game.paused = true; syncTools(); } });
 window.addEventListener("resize", placePopup);
@@ -1609,14 +2095,13 @@ function showReport() {
   const zoneBonus = zoneIoUs.reduce((a, v) => a + Math.round(v * 60), 0);
   scorePoints(zoneBonus, null);
   const thiefRate = S.thieves ? S.caught / S.thieves : 1;
-  const comp = .3 * rec + .2 * prec + .15 * gAcc + .2 * thiefRate + .15 * (zoneIoUs.reduce((a, b) => a + b, 0) / zoneIoUs.length) - .08 * S.falseAcc;
+  const comp = .3 * rec + .2 * prec + .15 * gAcc + .2 * thiefRate + .15 * (zoneIoUs.reduce((a, b) => a + b, 0) / zoneIoUs.length) - .08 * S.falseAcc - .05 * (S.hacks - S.repaired);
   const letter = comp >= .85 ? "A" : comp >= .7 ? "B" : comp >= .5 ? "C" : "D";
-  const verdict = { A: "Turno impecable. El dueño puede confiar en estos números.", B: "Buen turno. Se escaparon algunos datos.", C: "Datos flojos: hay tráfico que no quedó registrado.", D: "Con esta cámara el reporte no sirve. Probá de nuevo." }[letter];
+  const verdict = { A: "Turno impecable. El dueño puede confiar en estos números.", B: "Buen turno. Se escaparon algunos datos.", C: "Datos flojos: hay tráfico que no quedó registrado.", D: "Con estas cámaras el reporte no sirve. Probá de nuevo." }[letter];
   const pct = v => Math.round(v * 100) + "%";
   const zrows = LABELS.map(L => ({ L, z: S.zone[L.name] || { visits: 0, time: 0 } }));
   const sinZona = S.zone["Sin zona"];
-  const body = $("reportBody");
-  body.innerHTML = `
+  $("reportBody").innerHTML = `
     <span class="eyebrow"><b>■</b> Fin del turno ${game.level + 1} · ${cfg.name} · ${fmtClock(cfg.start).slice(0, 5)}–${fmtClock(cfg.start + cfg.dur * 60).slice(0, 5)}</span>
     <div class="grade"><span class="letter">${letter}</span><div><h2>${verdict}</h2><span class="pts">${game.levelScore.toLocaleString("es-AR")} pts en el turno · zonas +${zoneBonus}</span></div></div>
     <div class="rgrid">
@@ -1629,6 +2114,8 @@ function showReport() {
       <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
       <div><span>Sin detectar</span><strong>${S.missed}</strong></div>
       <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
+      <div><span>Hackeos reparados</span><strong>${S.hacks ? `${S.repaired}/${S.hacks}` : "—"}</strong></div>
+      <div><span>Tiempo sin señal</span><strong>${Math.round(S.downTime)} s</strong></div>
     </div>
     <div class="rsplit">
       <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
@@ -1640,7 +2127,7 @@ function showReport() {
         <p class="note">Así lo vería el dueño en la app: visitas y permanencia por zona, igual que la columna <code>zonas_tiempo</code> de cada sesión. Si no detectaste a alguien, no aparece acá.</p>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
-        <span class="eyebrow">Plano · mapa de calor</span>
+        <span class="eyebrow">Plano del salón · mapa de calor</span>
         <canvas id="plan" width="300" height="360"></canvas>
       </div>
     </div>
@@ -1671,6 +2158,7 @@ function drawPlan(c) {
   g.strokeStyle = "#e3ebe8"; g.lineWidth = 2; g.strokeRect(1, 1, c.width - 2, c.height - 2);
   g.strokeStyle = "#43e08a"; g.lineWidth = 4; g.beginPath(); g.moveTo(1, Y(3)); g.lineTo(1, Y(5)); g.stroke();
   g.fillStyle = "#8d9e9a"; g.font = '11px "JetBrains Mono", monospace'; g.fillText("SALIDA", 6, Y(4) + 4); g.fillText("CAJA", COUNTER.x1 * sx + 4, Y(4) + 4);
+  g.fillText("DEPÓSITO ↑", 8.65 * sx - 30, 14);
   g.fillText("10 m", c.width - 34, c.height - 6);
 }
 
@@ -1682,7 +2170,6 @@ function boot(data) {
   if (data && Array.isArray(data.zones) && data.zones.length === zones.length) zones = Int8Array.from(data.zones);
   if (data && Number.isFinite(data.level)) game.level = data.level;
   if (data && Number.isFinite(data.score)) game.score = data.score;
-  // escena de fondo mientras se muestra la intro
   game.stats = freshStats(); resetProducts(); spawnPerson("empleado", { cashier: true });
   game.stats = freshStats();
   renderMissions(); updateHud(); syncTools(); saveHot();
