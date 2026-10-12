@@ -113,6 +113,25 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 .classify .opts .lad[aria-pressed="true"]{border-color:var(--alert);color:var(--alert)}
 .classify .opts .emp[aria-pressed="true"]{border-color:var(--staff);color:var(--staff)}
 
+/* Arresto: secuencia de teclas */
+.qte{position:absolute;left:50%;bottom:6%;transform:translateX(-50%);z-index:6;width:min(430px,94%);background:rgba(10,15,17,.95);border:1px solid var(--alert);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 12px 40px -10px #000}
+.qte header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.qte header b{font-family:var(--f-display);font-size:20px;letter-spacing:.06em;color:var(--alert)}
+.qte header span{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-align:right}
+.qkeys{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.qkeys span{width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line);border-bottom-width:3px;border-radius:8px;font-size:21px;background:#141d20;font-family:var(--f-mono);transition:transform .08s}
+.qkeys span.ok{border-color:var(--det);color:var(--det);background:#12261b}
+.qkeys span.now{border-color:var(--amber);color:var(--amber);transform:translateY(-3px)}
+.qte.wrong .qkeys{animation:shake .25s}
+@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.qtimer{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.qtimer u{display:block;height:100%;width:100%;background:var(--alert);text-decoration:none}
+.qpad{display:flex;gap:6px;justify-content:center}
+.qpad button{width:54px;height:42px;border:1px solid var(--line);border-radius:8px;background:var(--raise);font-size:19px;cursor:pointer;touch-action:manipulation}
+@media (hover:hover) and (pointer:fine){.qpad{display:none}}
+@media (max-width:560px){.qkeys span{width:34px;height:34px;font-size:17px}.qte{position:fixed;z-index:40;bottom:max(12px,env(safe-area-inset-bottom,0px));padding:10px}.qte header span{display:none}}
+.t-pol{color:#7fa8ff}
+
 /* Pantallas sobre el monitor */
 .overlay{position:absolute;inset:0;z-index:8;display:flex;align-items:flex-start;justify-content:center;padding:16px;background:rgba(6,10,11,.86);overflow:auto}
 .overlay .sheet{margin-block:auto}
@@ -192,6 +211,18 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
             </div>
           </div>
 
+          <div class="qte" id="qte" hidden>
+            <header><b>¡DETENELO!</b><span>Apretá las flechas en orden · WASD también sirve</span></header>
+            <div class="qkeys" id="qteKeys"></div>
+            <div class="qtimer"><u id="qteBar"></u></div>
+            <div class="qpad">
+              <button data-k="ArrowLeft" aria-label="Izquierda">←</button>
+              <button data-k="ArrowUp" aria-label="Arriba">↑</button>
+              <button data-k="ArrowDown" aria-label="Abajo">↓</button>
+              <button data-k="ArrowRight" aria-label="Derecha">→</button>
+            </div>
+          </div>
+
           <div class="overlay" id="intro">
             <div class="sheet">
               <span class="eyebrow"><b>●</b> REC · CAM-01 · 4:3</span>
@@ -201,9 +232,10 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
                 <li>Pintá las zonas del local sobre el piso.</li>
                 <li>Arrastrá un recuadro sobre cada persona que entra.</li>
                 <li>Clasificala: género y cliente, empleado o ladrón.</li>
+                <li>Si marcás un ladrón entra la policía. Cuando lo alcanza, apretá la secuencia de flechas para esposarlo.</li>
                 <li>Al cierre, mirá tu reporte de tráfico por zona.</li>
               </ol>
-              <p class="keys">Atajos: <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>D</kbd> detectar · <kbd>P</kbd> pausa. Tocá un recuadro para reclasificar.</p>
+              <p class="keys">Atajos: <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>D</kbd> detectar · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto. Tocá un recuadro para reclasificar.</p>
               <div class="actions"><button class="primary" id="btnIntro">Encender cámara</button></div>
             </div>
           </div>
@@ -236,7 +268,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
           <div><span>En cámara</span><strong id="sIn">0</strong></div>
           <div><span>Detectadas</span><strong id="sDet" class="good">0</strong></div>
           <div><span>Se fueron sin detectar</span><strong id="sMiss" class="bad">0</strong></div>
-          <div><span>Ladrones atrapados</span><strong id="sThief">0 / 0</strong></div>
+          <div><span>Ladrones detenidos</span><strong id="sThief">0 / 0</strong></div>
           <div><span>Precisión</span><strong id="sPrec">—</strong></div>
           <div><span>IoU medio</span><strong id="sIou">—</strong></div>
         </div>
@@ -251,6 +283,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
           <li><span class="tag t-emp">Empleado</span><span>Chaleco naranja con franja reflectiva. Cobra en la caja o repone mercadería con una caja de cartón.</span></li>
           <li><span class="tag t-lad">Ladrón</span><span>Agarra productos sin canasto, mira a los costados, los esconde y sale sin pasar por la caja. Suele usar capucha, pero no siempre.</span></li>
           <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van.</span></li>
+          <li><span class="tag t-pol">Policía</span><span>Entra cuando marcás a alguien como ladrón. Si lo alcanza, tenés unos segundos para la secuencia de flechas. Si fallás, se suelta y corre a la salida. Si era inocente, perdés puntos.</span></li>
           <li><span class="tag t-man">Maniquí</span><span>No se mueve, no tiene pelo y está sobre una base. No lo marques.</span></li>
         </ul>
       </section>
@@ -528,6 +561,7 @@ function faceProducts(p) {
 function updatePerson(p, dt) {
   p.hist.push({ t: game.t, b: personBox(p) });
   while (p.hist.length && p.hist[0].t < game.t - 2.2) p.hist.shift();
+  if (p.cuffed) { p.headTurn = 0; return; }
   if (p.wp.length) {
     const w = p.wp[0], dx = w.x - p.x, dz = w.z - p.z, d = Math.hypot(dx, dz), step = p.speed * dt;
     if (d <= step) { p.x = w.x; p.z = w.z; p.wp.shift(); if (!p.wp.length) { p.place = p.target; p.task = null; } }
@@ -603,12 +637,13 @@ const game = {
 };
 try { game.best = +localStorage.getItem("lv-camara-best") || 0; } catch (e) { }
 function freshStats() {
-  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, robbed: 0, falseAcc: 0, missed: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
+  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, escaped: 0, robbed: 0, falseAcc: 0, missed: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
 }
 
 function setupLevel() {
   const cfg = levelCfg(game.level);
-  people = []; floats = []; resetProducts();
+  people = []; cops = []; floats = []; resetProducts();
+  game.qte = null; qteEl.hidden = true;
   game.t = 0; game.levelScore = 0; game.stats = freshStats(); game.heatGrid.fill(0);
   game.spawnIn = 1.5;
   game.thiefTimes = Array.from({ length: cfg.thieves }, (_, i) => 12 + (cfg.dur - 45) * (i + Math.random() * .8) / cfg.thieves).sort((a, b) => a - b);
@@ -638,6 +673,7 @@ function settle(p, atEnd) {
       if (p.zoneTime[k] >= 1) z.visits++; z.time += p.zoneTime[k];
     }
   }
+  if (p.cuffed) return; // ya se puntuó al esposarlo
   const where = atEnd ? null : p;
   if (!p.track) {
     S.missed++; scorePoints(-40, "penScore");
@@ -649,14 +685,19 @@ function settle(p, atEnd) {
   const g = p.track.type, truth = p.role;
   if (truth === "ladron") {
     if (g === "ladron") {
-      S.caught++; S.tOK++; S.tTot++; scorePoints(200, "clsScore");
-      floatAtDoor(p, "¡ATRAPADO! +200", "#43e08a"); logEvent(`ID ${p.track.id} ladrón atrapado`, "+200", "p");
+      S.tOK++; S.tTot++;
+      if (atEnd) logEvent(`ID ${p.track.id} marcado, sin detener`, "", "");
+      else {
+        S.escaped++; if (p.stolen) S.robbed++; scorePoints(-150, "penScore");
+        floatAtDoor(p, "SE ESCAPÓ −150", "#ff5a52"); logEvent(`ID ${p.track.id} se escapó`, "−150", "n");
+      }
     } else if (p.stolen) {
       S.robbed++; S.tTot++; scorePoints(-150, "penScore");
       floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52"); logEvent(`ID ${p.track.id} era ladrón`, "−150", "n");
     } else if (g) { S.tTot++; scorePoints(-30, "penScore"); logEvent(`ID ${p.track.id} era ladrón`, "−30", "n"); }
     return;
   }
+  if (p.checked) return; // la policía ya lo revisó y se cobró la acusación
   if (!g) { if (!atEnd) floatAtDoor(p, "SIN CLASIFICAR", "#8d9e9a"); return; }
   S.tTot++;
   if (g === "ladron") {
@@ -740,6 +781,7 @@ function evaluateBox(box, t0) {
     m = Math.max(m, iou(box, personBox(p)));
     if (m > bestIoU) { bestIoU = m; best = p; }
   }
+  for (const c of cops) if (iou(box, personBox(c)) > .4) { floatAt(box.x + box.w / 2, box.y - 8, "ES EL POLICÍA", "#7fa8ff"); return; }
   const mIoU = iou(box, mannequinBox());
   const cx = box.x + box.w / 2, cy = box.y;
   if (mIoU > .3 && mIoU >= bestIoU) {
@@ -772,6 +814,7 @@ function flashBox(b, color) { flashes.push({ b, color, t: 0 }); }
 const pop = document.getElementById("pop");
 let popFor = null, popCloseTimer = null;
 function openPopup(p) {
+  if (p.cuffed) return;
   popFor = p; clearTimeout(popCloseTimer);
   document.getElementById("popTitle").textContent = `ID ${String(p.track.id).padStart(2, "0")} · CLASIFICAR`;
   syncPopup(); pop.hidden = false; placePopup();
@@ -802,7 +845,7 @@ function chooseGender(g) {
 function chooseType(t) {
   const p = popFor; if (!p) return;
   p.track.type = t; syncPopup();
-  if (t === "ladron") logEvent(`ID ${String(p.track.id).padStart(2, "0")} marcado como ladrón`, "", "n");
+  if (t === "ladron") { logEvent(`ID ${String(p.track.id).padStart(2, "0")} marcado como ladrón`, "", "n"); callPolice(p); }
   maybeAutoClose();
 }
 function maybeAutoClose() {
@@ -826,13 +869,138 @@ function paintAt(pt) {
   }
 }
 
+// ───────────────────────── Policía y arresto
+let cops = [];
+const OBSTACLES = [
+  ...SHELVES.map(sh => ({ x0: sh.x0 - .1, x1: sh.x1 + .1, z0: SEG_Z0 - .1, z1: SEG_Z0 + NSEG * SEG_L + .1 })),
+  { x0: COUNTER.x0 - .1, x1: COUNTER.x1 + .1, z0: COUNTER.z0 - .1, z1: COUNTER.z1 + .1 },
+  { x0: ISLAND.x0 - .1, x1: ISLAND.x1 + .1, z0: ISLAND.z0 - .1, z1: ISLAND.z1 + .1 },
+];
+function lineClear(a, b) {
+  for (let i = 1; i < 12; i++) {
+    const t = i / 12, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+    for (const o of OBSTACLES) if (x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1) return false;
+  }
+  return true;
+}
+// Punto más cercano de la red de pasillos, para rutear desde cualquier lugar.
+function nearestPlace(p) {
+  let best = null;
+  for (const [a, b] of EDGES) {
+    const A = N[a], B = N[b], dx = B[0] - A[0], dz = B[1] - A[1];
+    const t = clamp(((p.x - A[0]) * dx + (p.z - A[1]) * dz) / (dx * dx + dz * dz), 0, 1);
+    const x = A[0] + dx * t, z = A[1] + dz * t, d = Math.hypot(p.x - x, p.z - z);
+    if (!best || d < best.d) best = { d, x, z, anchors: [a, b] };
+  }
+  return { x: best.x, z: best.z, anchors: best.anchors };
+}
+function stepToward(p, x, z, dt) {
+  const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), step = p.speed * dt;
+  p.moving = true; p.phase += dt * p.speed * 7.5;
+  if (Math.abs(dz) > .02) p.faceBack = dz > 0;
+  if (d <= step) { p.x = x; p.z = z; return true; }
+  p.x += dx / d * step; p.z += dz / d * step; return false;
+}
+function followWp(p, dt) {
+  if (!p.wp.length) { p.moving = false; return true; }
+  if (stepToward(p, p.wp[0].x, p.wp[0].z, dt)) p.wp.shift();
+  return !p.wp.length;
+}
+const idStr = p => String(p.track.id).padStart(2, "0");
+function callPolice(s) {
+  if (cops.some(c => c.suspect === s && c.mode === "chase")) return;
+  cops.push({
+    id: nextId++, role: "policia", gender: "H", h: 1.82, x: N.OUT[0], z: N.OUT[1], speed: 1.9,
+    look: { skin: pick(SKIN), hair: pick(HAIR.slice(0, 4)), hairStyle: "corto", shirt: "#26476e", pants: "#172739", shoes: "#0f0f0f", police: true },
+    wp: [], phase: 0, moving: false, faceBack: false, headTurn: 0, anim: null, suspect: s, mode: "chase", repath: 0, stun: 0,
+  });
+  logEvent(`Policía en camino a ID ${idStr(s)}`, "", "");
+}
+function copLeave(c) { c.mode = "leave"; c.suspect = null; c.speed = 1.3; c.wp = route(nearestPlace(c), { node: "OUT" }); }
+function thiefFlee(s, speed, msg) {
+  s.fleeing = true; s.speed = speed; s.handItem = null; s.anim = null;
+  s.place = nearestPlace(s); s.wp = []; s.task = null;
+  s.tasks = [{ k: "go", to: () => ({ node: "OUT" }) }, { k: "leave" }];
+  if (msg) floatText(s, msg, "#ffb547");
+}
+function updateCop(c, dt) {
+  if (c.stun > 0) { c.stun -= dt; c.moving = false; return; }
+  const s = c.suspect;
+  if (c.mode === "chase") {
+    if (!s || !people.includes(s) || !s.track || s.track.type !== "ladron") { copLeave(c); return; }
+    const d = Math.hypot(s.x - c.x, s.z - c.z);
+    if (d < .7) { copArrive(c, s); return; }
+    if (d < 4 && s.role === "ladron" && !s.fleeing) thiefFlee(s, 1.6, "¡LO VIO Y CORRE!");
+    if (d < 2.4 && lineClear(c, s)) { c.wp = []; stepToward(c, s.x, s.z, dt); return; }
+    c.repath -= dt;
+    if (c.repath <= 0 || !c.wp.length) { c.repath = .5; c.wp = route(nearestPlace(c), nearestPlace(s)); }
+    followWp(c, dt);
+  } else if (c.mode === "escort") {
+    const done = followWp(c, dt);
+    const dd = Math.hypot(c.x - s.x, c.z - s.z);
+    if (dd > .6) { s.speed = c.speed; stepToward(s, c.x - (c.x - s.x) / dd * .6, c.z - (c.z - s.z) / dd * .6, dt); } else s.moving = false;
+    if (done) {
+      people.splice(people.indexOf(s), 1); settle(s, false); cops.splice(cops.indexOf(c), 1);
+      logEvent(`ID ${idStr(s)} entregado a la comisaría`, "", "p");
+    }
+  } else if (followWp(c, dt)) cops.splice(cops.indexOf(c), 1);
+}
+function copArrive(c, s) {
+  if (s.role === "ladron") { startQte(c, s); return; }
+  const S = game.stats;
+  S.falseAcc++; S.tTot++; s.track.type = null; s.checked = true;
+  scorePoints(-120, "penScore"); floatText(s, "LO REVISARON: NO ROBÓ NADA −120", "#ff5a52");
+  logEvent(`ID ${idStr(s)} era inocente`, "−120", "n");
+  copLeave(c);
+}
+
+const qteEl = document.getElementById("qte"), qteKeys = document.getElementById("qteKeys"), qteBar = document.getElementById("qteBar");
+const ARROWS = ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"];
+const GLYPH = { ArrowLeft: "←", ArrowUp: "↑", ArrowRight: "→", ArrowDown: "↓" };
+function startQte(c, s) {
+  const n = Math.min(8, 4 + game.level);
+  game.qte = { c, s, seq: Array.from({ length: n }, () => pick(ARROWS)), i: 0, t: 0, limit: 1.4 + n * .6 };
+  closePopup(); c.moving = false; s.moving = false; s.faceBack = false; c.faceBack = false;
+  renderQte(); qteEl.hidden = false;
+}
+function renderQte() {
+  const q = game.qte; if (!q) return;
+  qteKeys.innerHTML = q.seq.map((k, i) => `<span class="${i < q.i ? "ok" : i === q.i ? "now" : ""}">${GLYPH[k]}</span>`).join("");
+  qteBar.style.width = `${100 * clamp(1 - q.t / q.limit, 0, 1)}%`;
+}
+function qteKey(k) {
+  const q = game.qte; if (!q || game.paused) return;
+  if (k === q.seq[q.i]) { q.i++; if (q.i >= q.seq.length) qteWin(); else renderQte(); return; }
+  q.i = 0; renderQte();
+  qteEl.classList.remove("wrong"); void qteEl.offsetWidth; qteEl.classList.add("wrong");
+}
+function qteWin() {
+  const { c, s, t, limit } = game.qte; game.qte = null; qteEl.hidden = true;
+  const S = game.stats, pts = 200 + Math.round((limit - t) * 20);
+  S.caught++; S.tOK++; S.tTot++;
+  s.cuffed = true; s.fleeing = false; s.wp = []; s.tasks = []; s.task = { k: "cuffed" }; s.handItem = null; s.anim = null;
+  c.mode = "escort"; c.speed = 1.1; c.wp = route(nearestPlace(c), { node: "OUT" });
+  scorePoints(pts, "clsScore");
+  floatText(s, `¡DETENIDO! +${pts}`, "#43e08a");
+  logEvent(`ID ${idStr(s)} esposado`, `+${pts}`, "p");
+}
+function qteLose() {
+  const { c, s } = game.qte; game.qte = null; qteEl.hidden = true;
+  c.stun = 1.1; c.speed = 2.1;
+  thiefFlee(s, 1.75, "¡SE SOLTÓ!");
+  logEvent(`ID ${idStr(s)} se soltó`, "", "n");
+}
+qteEl.addEventListener("pointerdown", e => { const b = e.target.closest("button[data-k]"); if (b) { e.preventDefault(); qteKey(b.dataset.k); } });
+
 // ───────────────────────── Bucle
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (game.state === "play" && !game.paused) {
-    const slow = popFor ? .25 : 1;
-    update(dt * slow);
+    if (game.qte) {
+      game.qte.t += dt; renderQte();
+      if (game.qte.t >= game.qte.limit) qteLose();
+    } else update(dt * (popFor ? .25 : 1));
   } else if (game.state === "setup") {
     for (const p of people) { p.headTurn = Math.sin(now / 1400 + p.id) * .5; }
   }
@@ -862,6 +1030,7 @@ function update(dt) {
     }
   }
   for (const p of people.slice()) updatePerson(p, dt);
+  for (const c of cops.slice()) updateCop(c, dt);
   if (popFor && !people.includes(popFor)) closePopup();
   // analítica: solo cuenta a quien detectaste
   for (const p of people) if (p.track) {
@@ -877,6 +1046,7 @@ function update(dt) {
 
 function endShift() {
   for (const p of people) settle(p, true);
+  game.qte = null; qteEl.hidden = true; cops = [];
   closePopup();
   game.state = "report";
   updateHud();
@@ -1084,6 +1254,11 @@ function drawFigure(p, mannequin) {
   // torso
   rr(-18, -143, 36, 64, 9, L.dress || torso);
   if (L.hoodie && !back) { rr(-11, -112, 22, 12, 4, "rgba(0,0,0,.22)"); }
+  if (L.police) {
+    rr(-18, -88, 36, 5, 1, "#0d0d0d");
+    if (back) { ctx.font = '700 8.5px "Chakra Petch", sans-serif'; ctx.textAlign = "center"; ctx.fillStyle = "#e9eef0"; ctx.fillText("POLICÍA", 0, -118); ctx.textAlign = "left"; }
+    else { circ(-9, -127, 3.4, "#f2c94c"); rr(4, -131, 9, 3, 1, "#c9d1d4"); }
+  }
   if (L.vest) {
     if (back) rr(-17, -141, 34, 56, 7, "#ff7a1a");
     else { rr(-17, -141, 13, 56, 6, "#ff7a1a"); rr(4, -141, 13, 56, 6, "#ff7a1a"); rr(-12, -132, 7, 5, 1, "#e9eef0"); }
@@ -1098,7 +1273,11 @@ function drawFigure(p, mannequin) {
   };
   const reach = p.anim === "reach" || p.anim === "stock";
   const reachDir = (p.place && p.place.look) || 1;
-  if (p.box && !p.cashier && p.moving) {
+  if (p.cuffed) {
+    arm(-1, -.2, 50); arm(1, .2, 50);
+    ctx.strokeStyle = "#c9d1d4"; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(-4, -88, 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(4, -88, 3.5, 0, Math.PI * 2); ctx.stroke();
+  } else if (p.box && !p.cashier && p.moving) {
     arm(-1, -.55, 46); arm(1, .55, 46);
     rr(-20, -122, 40, 30, 3, "#b98b55"); rr(-20, -110, 40, 4, 1, "#d8c49a");
   } else if (reach) {
@@ -1149,6 +1328,10 @@ function drawFigure(p, mannequin) {
       ctx.fillStyle = "rgba(20,15,12,.75)"; ctx.fillRect(hx - 5 + p.headTurn * 1.5, -160, 2.4, 2.4); ctx.fillRect(hx + 3 + p.headTurn * 1.5, -160, 2.4, 2.4);
     }
   }
+  if (L.police) {
+    rr(hx - 13, -178, 26, 12, 3, "#172739"); rr(hx - 13, -169, 26, 3, 1, "#f2c94c");
+    if (!back) { rr(hx - 12 + p.headTurn * 3, -167, 24, 4, 2, "#0b1420"); circ(hx, -174, 2.6, "#f2c94c"); }
+  }
   if (L.cap && !L.hood) { ctx.beginPath(); ctx.arc(hx, -161, 13, Math.PI, 0); ctx.closePath(); ctx.fillStyle = L.cap; ctx.fill(); if (!back) rr(hx - 4 + p.headTurn * 4, -163, 18, 4, 2, L.cap); }
   if (L.glasses && !back) rr(hx - 8 + p.headTurn * 1.5, -162, 16, 5, 2, "#0d0d0d");
 }
@@ -1197,7 +1380,7 @@ function sortedDrawables() {
   add({ x0: ISLAND.x0, x1: ISLAND.x1, z0: ISLAND.z0, z1: ISLAND.z1 }, drawIsland, sbBox(ISLAND.x0, ISLAND.x1, 1.4, ISLAND.z0, ISLAND.z1));
   add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
   add({ x0: MANNEQUIN_POS.x - .25, x1: MANNEQUIN_POS.x + .25, z0: MANNEQUIN_POS.z - .2, z1: MANNEQUIN_POS.z + .2 }, drawMannequin, boxToSb(mannequinBox()));
-  for (const p of people) add({ x0: p.x - .22, x1: p.x + .22, z0: p.z - .18, z1: p.z + .18 }, () => drawPerson(p), boxToSb(personBox(p)));
+  for (const p of [...people, ...cops]) add({ x0: p.x - .22, x1: p.x + .22, z0: p.z - .18, z1: p.z + .18 }, () => drawPerson(p), boxToSb(personBox(p)));
   // Kahn: arista B→A si B está detrás de A y se superponen en pantalla
   const n = list.length, indeg = new Array(n).fill(0), out = list.map(() => []);
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
@@ -1228,10 +1411,11 @@ function drawTracks(time) {
     let col = "#43e08a";
     if (tr.type === "empleado") col = "#52c7ff";
     if (tr.type === "ladron") col = (Math.floor(time * 4) % 2) ? "#ff5a52" : "#ff9a94";
+    if (p.cuffed) col = "#ff5a52";
     ctx.strokeStyle = col; ctx.lineWidth = 2;
     if (!tr.type || !tr.gender) ctx.setLineDash([7, 4]); else ctx.setLineDash([]);
     ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]);
-    const label = `ID ${String(tr.id).padStart(2, "0")} · ${tr.gender || "?"} · ${tr.type ? { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" }[tr.type] : "?"}`;
+    const label = `ID ${String(tr.id).padStart(2, "0")} · ${tr.gender || "?"} · ${p.cuffed ? "DETENIDO" : tr.type ? { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" }[tr.type] : "?"}`;
     const tw = ctx.measureText(label).width + 10;
     ctx.fillStyle = col; ctx.fillRect(b.x - 1, b.y - 18, tw, 17);
     ctx.fillStyle = "#08100c"; ctx.fillText(label, b.x + 4, b.y - 5);
@@ -1268,7 +1452,7 @@ function drawHud(time) {
   ctx.fillText("640×480 · RE-ID ON · LEANVISION", W - 46, H - 52);
   // modo
   ctx.textAlign = "center"; ctx.font = '600 13px "JetBrains Mono", monospace';
-  const modeTxt = game.paused ? "‖ EN PAUSA" : game.mode === "zones" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : game.state === "play" ? "MODO DETECCIÓN" : "";
+  const modeTxt = game.paused ? "‖ EN PAUSA" : game.mode === "zones" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : game.qte ? "● ARRESTO EN CURSO" : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : cops.some(c => c.mode === "chase") ? "POLICÍA EN CAMINO" : game.state === "play" ? "MODO DETECCIÓN" : "";
   if (modeTxt) { const w = ctx.measureText(modeTxt).width + 20; ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(W / 2 - w / 2, 44, w, 24); ctx.fillStyle = game.mode === "zones" ? "#ffb547" : "#f2f5f2"; ctx.fillText(modeTxt, W / 2, 57); }
   if (game.state === "setup") {
     const msg = "Pintá las zonas sobre el piso · después tocá INICIAR TURNO";
@@ -1289,6 +1473,17 @@ function render(time) {
   poly(quad([7.35, 2.1, 4], [8.45, 2.1, 4], [8.45, 2.45, 4], [7.35, 2.45, 4]), "#203038", "#0d1417", 2);
   planeText("CAJA", [7.9, 2.275, 3.99], [1, 0, 0], [0, -1, 0], 2.4, "#ffb547");
   drawTracks(time);
+  if (game.qte) {
+    const a = personBox(game.qte.s), b = personBox(game.qte.c);
+    const cx = (a.x + a.w / 2 + b.x + b.w / 2) / 2, cy = (a.y + a.h / 2 + b.y + b.h / 2) / 2, r = Math.max(a.h, b.h) * 1.05 + Math.abs(a.x - b.x) / 2;
+    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, r, 0, Math.PI * 2, true); ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fill("evenodd");
+    ctx.strokeStyle = "#ff5a52"; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (game.state === "play" && (game.qte || cops.some(c => c.mode === "chase"))) {
+    const red = Math.floor(time * 4) % 2 === 0, g = ctx.createLinearGradient(0, 0, 0, 110);
+    g.addColorStop(0, red ? "rgba(255,50,50,.42)" : "rgba(60,110,255,.42)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, 110);
+  }
   // recuadro en curso
   if (drag && !drag.zone) {
     const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
@@ -1382,6 +1577,11 @@ function startShift() {
 document.addEventListener("keydown", e => {
   if (e.target.closest && e.target.closest("input,textarea")) return;
   const k = e.key.toLowerCase();
+  if (game.qte) {
+    const map = { arrowleft: "ArrowLeft", a: "ArrowLeft", arrowup: "ArrowUp", w: "ArrowUp", arrowright: "ArrowRight", d: "ArrowRight", arrowdown: "ArrowDown", s: "ArrowDown" };
+    if (map[k]) { e.preventDefault(); if (!e.repeat) qteKey(map[k]); }
+    return;
+  }
   if (popFor) {
     if (k === "h") return chooseGender("H");
     if (k === "m") return chooseGender("M");
@@ -1424,7 +1624,8 @@ function showReport() {
       <div><span>Precisión</span><strong>${pct(prec)}</strong></div>
       <div><span>IoU medio</span><strong>${mIoU.toFixed(2)}</strong></div>
       <div><span>Género</span><strong>${S.gTot ? pct(gAcc) : "—"}</strong></div>
-      <div><span>Ladrones</span><strong>${S.caught}/${S.thieves}</strong></div>
+      <div><span>Ladrones detenidos</span><strong>${S.caught}/${S.thieves}</strong></div>
+      <div><span>Se escaparon</span><strong>${S.escaped}</strong></div>
       <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
       <div><span>Sin detectar</span><strong>${S.missed}</strong></div>
       <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
