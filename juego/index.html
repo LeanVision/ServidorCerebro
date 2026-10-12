@@ -1,0 +1,1494 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}</style>
+</head>
+<body>
+<title>Cámara Lean Retail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: consola de monitoreo — el monitor CCTV 4:3 manda a la izquierda, el panel del operador a la derecha; en celular se apilan. */
+:root{
+  --bg:#0b1012;
+  --panel:#121a1d;
+  --panel-2:#18232700;
+  --raise:#1a2529;
+  --line:#26363a;
+  --fg:#e3ebe8;
+  --muted:#8d9e9a;
+  --amber:#ffb547;
+  --det:#43e08a;
+  --alert:#ff5a52;
+  --staff:#52c7ff;
+  --ink:#0b1012;
+  --f-display:"Chakra Petch","Bahnschrift","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:14px;line-height:1.45;padding-inline:16px;padding-block:14px 28px}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+.app{max-width:1320px;margin-inline:auto;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px 24px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.brand{display:flex;flex-direction:column;gap:2px;min-width:0}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.eyebrow b{color:var(--alert);font-weight:600}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);line-height:1.05;margin:0;letter-spacing:.01em;text-wrap:balance}
+.hud{display:flex;flex-wrap:wrap;gap:6px 22px;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.hud div{display:flex;flex-direction:column;align-items:flex-end}
+.hud span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.hud strong{font-size:20px;font-weight:600;line-height:1.1}
+#hudScore.bump{color:var(--det)}
+#hudScore.drop{color:var(--alert)}
+#hudScore{transition:color .4s}
+
+.console{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:900px){.console{grid-template-columns:minmax(0,1fr)}}
+.monitor{display:flex;flex-direction:column;gap:10px;min-width:0;align-items:center}
+.bezel{width:min(100%,calc((100vh - 190px) * 4 / 3));min-width:min(100%,520px);padding:10px;border-radius:14px;background:linear-gradient(#1b2427,#111819);border:1px solid var(--line);box-shadow:0 18px 50px -20px #000}
+.screen{position:relative;width:100%;aspect-ratio:4/3;max-width:100%;border-radius:6px;overflow:hidden;background:#000}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cv.paint{cursor:cell}
+
+.toolbar{width:min(100%,calc((100vh - 190px) * 4 / 3));min-width:min(100%,520px);display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:transparent;padding:8px 12px;font-family:var(--f-display);font-weight:600;font-size:13px;letter-spacing:.04em;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--raise);color:var(--fg);box-shadow:inset 0 -2px 0 var(--amber)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 10px 5px 8px;font-size:12px;cursor:pointer;color:var(--fg)}
+.chip i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.chip[aria-pressed="true"]{border-color:var(--fg);background:var(--raise)}
+.tool{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:7px 10px;font-size:12px;cursor:pointer}
+.tool[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
+.spacer{flex:1}
+.primary{border:0;border-radius:8px;padding:9px 16px;background:var(--amber);color:var(--ink);font-family:var(--f-display);font-weight:700;letter-spacing:.05em;cursor:pointer;text-transform:uppercase;font-size:13px}
+.primary:hover{filter:brightness(1.08)}
+.ghost{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:transparent;font-family:var(--f-display);font-weight:600;letter-spacing:.04em;cursor:pointer;font-size:13px}
+
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h2{font-family:var(--f-display);font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;margin:0;color:var(--muted)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.stats div{display:flex;flex-direction:column}
+.stats span{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.stats strong{font-size:18px;font-weight:600}
+.stats .bad{color:var(--alert)}
+.stats .good{color:var(--det)}
+.missions{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.missions li{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:2px 8px;align-items:center;font-size:12.5px}
+.missions i{width:10px;height:10px;border-radius:3px}
+.missions small{grid-column:2/4;color:var(--muted);font-size:11.5px}
+.missions b{font-family:var(--f-mono);font-weight:600;font-size:12px;font-variant-numeric:tabular-nums}
+.bar{grid-column:2/4;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar u{display:block;height:100%;background:var(--muted);text-decoration:none;transition:width .25s}
+.guide{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.guide li{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;align-items:start}
+.tag{font-family:var(--f-mono);font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border:1px solid currentColor;border-radius:4px;padding:1px 5px;text-align:center}
+.t-cli{color:var(--det)}.t-emp{color:var(--staff)}.t-lad{color:var(--alert)}.t-man{color:var(--muted)}
+.feed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-family:var(--f-mono);font-size:11.5px;max-height:190px;overflow:auto}
+.feed li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;color:var(--muted)}
+.feed li em{font-style:normal;color:var(--fg)}
+.feed .p{color:var(--det)}.feed .n{color:var(--alert)}
+
+/* Popup de clasificación */
+.classify{position:absolute;z-index:5;width:min(230px,70%);background:rgba(10,15,17,.94);border:1px solid var(--det);border-radius:8px;padding:9px 10px;display:flex;flex-direction:column;gap:7px;box-shadow:0 10px 30px -8px #000;backdrop-filter:blur(2px)}
+.classify header{display:flex;align-items:center;justify-content:space-between;font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;color:var(--det)}
+.classify header button{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px}
+.classify .row{display:flex;flex-direction:column;gap:4px}
+.classify .row span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.classify .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:4px}
+.classify .opts button{border:1px solid var(--line);background:#141d20;border-radius:6px;padding:6px 4px;font-size:12px;cursor:pointer;display:flex;justify-content:center;gap:5px;align-items:baseline}
+.classify .opts button kbd{font-family:var(--f-mono);font-size:10px;color:var(--muted)}
+.classify .opts button[aria-pressed="true"]{border-color:var(--fg);background:#22302f}
+.classify .opts button:disabled{opacity:.45;cursor:default}
+.classify .opts .lad[aria-pressed="true"]{border-color:var(--alert);color:var(--alert)}
+.classify .opts .emp[aria-pressed="true"]{border-color:var(--staff);color:var(--staff)}
+
+/* Pantallas sobre el monitor */
+.overlay{position:absolute;inset:0;z-index:8;display:flex;align-items:flex-start;justify-content:center;padding:16px;background:rgba(6,10,11,.86);overflow:auto}
+.overlay .sheet{margin-block:auto}
+#report{position:fixed;z-index:50;background:rgba(6,10,11,.88);padding-block:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-bottom,0px))}
+#report .sheet{width:min(780px,100%);max-height:none;overflow:visible;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+@media (max-width:700px){
+  #intro{position:fixed;z-index:50;padding-block:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-bottom,0px))}
+  #report .sheet{padding:14px}
+  .hud{display:grid;grid-template-columns:repeat(4,auto);justify-content:start;gap:4px 18px}
+  .hud div{align-items:flex-start}
+  .hud strong{font-size:16px}
+}
+.sheet{width:min(640px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:4px}
+.sheet h2{font-family:var(--f-display);font-weight:700;font-size:clamp(24px,4.2vw,40px);line-height:1;margin:0;text-wrap:balance}
+.sheet p{margin:0;max-width:62ch;color:#c9d4d0}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;counter-reset:s}
+.steps li{border-top:2px solid var(--amber);padding-top:6px;font-size:12.5px;color:#c9d4d0;counter-increment:s}
+.steps li::before{content:"0" counter(s);display:block;font-family:var(--f-mono);font-size:11px;color:var(--amber);letter-spacing:.1em}
+.keys{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.keys kbd{border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--fg)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.grade{display:flex;align-items:center;gap:16px}
+.grade h2{font-size:clamp(19px,2.4vw,26px)!important;line-height:1.15!important}
+.grade>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.grade .letter{font-family:var(--f-display);font-weight:700;font-size:64px;line-height:.9;color:var(--amber)}
+.grade .pts{font-family:var(--f-mono);font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px}
+.rgrid div{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;background:rgba(18,26,29,.8)}
+.rgrid span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.rgrid strong{font-family:var(--f-mono);font-size:19px;font-variant-numeric:tabular-nums}
+.rsplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:560px){.rsplit{grid-template-columns:minmax(0,1fr)}}
+.ztable{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.ztable th{text-align:left;font-weight:500;color:var(--muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--line);padding:4px 4px}
+.ztable td{padding:5px 4px;border-bottom:1px solid #1b2629}
+.ztable td:not(:first-child),.ztable th:not(:first-child){text-align:right;font-family:var(--f-mono)}
+.ztable i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+#plan{width:min(100%,260px);max-width:100%;aspect-ratio:10/12;border:1px solid var(--line);border-radius:8px;background:#0e1517}
+.note{font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="eyebrow"><b>●</b> LeanVision · CAM-01 · Salón principal</span>
+      <h1>Cámara Lean Retail</h1>
+    </div>
+    <div class="hud" aria-live="off">
+      <div><span>Turno</span><strong id="hudLevel">1 · Apertura</strong></div>
+      <div><span>Quedan</span><strong id="hudTime">1:30</strong></div>
+      <div><span>Puntaje</span><strong id="hudScore">0</strong></div>
+      <div><span>Récord</span><strong id="hudBest">0</strong></div>
+    </div>
+  </header>
+
+  <main class="console">
+    <section class="monitor">
+      <div class="bezel">
+        <div class="screen" id="screen">
+          <canvas id="cv" width="960" height="720" aria-label="Vista de la cámara de seguridad del local"></canvas>
+
+          <div class="classify" id="pop" hidden>
+            <header><span id="popTitle">ID 01</span><button id="popClose" aria-label="Cerrar">✕</button></header>
+            <div class="row"><span>Género</span>
+              <div class="opts">
+                <button data-g="H">Hombre <kbd>H</kbd></button>
+                <button data-g="M">Mujer <kbd>M</kbd></button>
+              </div>
+            </div>
+            <div class="row"><span>Tipo</span>
+              <div class="opts">
+                <button data-t="cliente">Cliente <kbd>C</kbd></button>
+                <button data-t="empleado" class="emp">Empleado <kbd>E</kbd></button>
+                <button data-t="ladron" class="lad">Ladrón <kbd>L</kbd></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="overlay" id="intro">
+            <div class="sheet">
+              <span class="eyebrow"><b>●</b> REC · CAM-01 · 4:3</span>
+              <h2>Sos la cámara del local.</h2>
+              <p>Durante el turno entran clientes, empleados y algún ladrón. Encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Antes de abrir, pintá las zonas del piso: lo que no detectás no aparece en tus datos.</p>
+              <ol class="steps">
+                <li>Pintá las zonas del local sobre el piso.</li>
+                <li>Arrastrá un recuadro sobre cada persona que entra.</li>
+                <li>Clasificala: género y cliente, empleado o ladrón.</li>
+                <li>Al cierre, mirá tu reporte de tráfico por zona.</li>
+              </ol>
+              <p class="keys">Atajos: <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>D</kbd> detectar · <kbd>P</kbd> pausa. Tocá un recuadro para reclasificar.</p>
+              <div class="actions"><button class="primary" id="btnIntro">Encender cámara</button></div>
+            </div>
+          </div>
+
+          <div class="overlay" id="report" hidden>
+            <div class="sheet" id="reportBody"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Modo">
+          <button id="mDetect" aria-pressed="true">Detectar</button>
+          <button id="mZones" aria-pressed="false">Zonas</button>
+        </div>
+        <div class="chips" id="chips" hidden></div>
+        <button class="tool" id="tBrush" aria-pressed="false" hidden>Pincel 1 m</button>
+        <button class="tool" id="tErase" aria-pressed="false" hidden>Borrar</button>
+        <button class="tool" id="tHeat" aria-pressed="false">Mapa de calor</button>
+        <span class="spacer"></span>
+        <button class="ghost" id="btnPause">Pausa</button>
+        <button class="primary" id="btnStart" hidden>Iniciar turno</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card">
+        <h2>En vivo</h2>
+        <div class="stats">
+          <div><span>En cámara</span><strong id="sIn">0</strong></div>
+          <div><span>Detectadas</span><strong id="sDet" class="good">0</strong></div>
+          <div><span>Se fueron sin detectar</span><strong id="sMiss" class="bad">0</strong></div>
+          <div><span>Ladrones atrapados</span><strong id="sThief">0 / 0</strong></div>
+          <div><span>Precisión</span><strong id="sPrec">—</strong></div>
+          <div><span>IoU medio</span><strong id="sIou">—</strong></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Zonas del local</h2>
+        <ul class="missions" id="missions"></ul>
+      </section>
+      <section class="card">
+        <h2>Guía de campo</h2>
+        <ul class="guide">
+          <li><span class="tag t-emp">Empleado</span><span>Chaleco naranja con franja reflectiva. Cobra en la caja o repone mercadería con una caja de cartón.</span></li>
+          <li><span class="tag t-lad">Ladrón</span><span>Agarra productos sin canasto, mira a los costados, los esconde y sale sin pasar por la caja. Suele usar capucha, pero no siempre.</span></li>
+          <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van.</span></li>
+          <li><span class="tag t-man">Maniquí</span><span>No se mueve, no tiene pelo y está sobre una base. No lo marques.</span></li>
+        </ul>
+      </section>
+      <section class="card">
+        <h2>Registro</h2>
+        <ul class="feed" id="feed"><li><span>--:--</span><em>Cámara en espera</em><span></span></li></ul>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ───────────────────────── Constantes de escena
+const W = 960, H = 720;
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+const cv = document.getElementById("cv");
+cv.width = W * DPR; cv.height = H * DPR;
+const ctx = cv.getContext("2d");
+const setT = (a, b, c, d, e, f) => ctx.setTransform(a * DPR, b * DPR, c * DPR, d * DPR, e * DPR, f * DPR);
+const resetT = () => ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+const STORE = { w: 10, d: 12, h: 3.6 };
+const CAM = { x: 5.8, y: 3.35, z: -1.9, yaw: -10 * Math.PI / 180, pitch: 27 * Math.PI / 180, f: 540 };
+const cY = Math.cos(CAM.yaw), sY = Math.sin(CAM.yaw), cP = Math.cos(CAM.pitch), sP = Math.sin(CAM.pitch);
+function proj(x, y, z) {
+  const dx = x - CAM.x, dy = y - CAM.y, dz = z - CAM.z;
+  const x1 = dx * cY - dz * sY, z1 = dx * sY + dz * cY;
+  const yc = dy * cP + z1 * sP, zc = Math.max(0.05, z1 * cP - dy * sP);
+  return { x: W / 2 + CAM.f * x1 / zc, y: H / 2 - CAM.f * yc / zc, d: zc };
+}
+function unproj(sx, sy) {
+  const u = (sx - W / 2) / CAM.f, v = -(sy - H / 2) / CAM.f;
+  const y1 = v * cP - sP, z1 = v * sP + cP, x1 = u;
+  const dx = x1 * cY + z1 * sY, dz = -x1 * sY + z1 * cY;
+  if (y1 >= -1e-4) return null;
+  const t = -CAM.y / y1;
+  return { x: CAM.x + t * dx, z: CAM.z + t * dz };
+}
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmtClock = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`; };
+
+// ───────────────────────── Zonas (grilla de 0,5 m, igual que el Cerebro)
+const CELL = 0.5, COLS = STORE.w / CELL, ROWS = STORE.d / CELL;
+const LABELS = [
+  { name: "Entrada", color: "#4d8dff" },
+  { name: "Góndolas", color: "#b46cff" },
+  { name: "Caja", color: "#ffb020" },
+  { name: "Probadores", color: "#ff5fa2" },
+  { name: "Ropa", color: "#2fd0c0" },
+];
+const MISSIONS = [
+  { label: 0, r: { x0: 0, x1: 2.5, z0: 2.5, z1: 5.5 }, hint: "El piso frente a la puerta de salida." },
+  { label: 1, r: { x0: 1, x1: 7, z0: 5.5, z1: 10.5 }, hint: "Los pasillos entre las estanterías." },
+  { label: 2, r: { x0: 6.5, x1: 8.5, z0: 2.5, z1: 5.5 }, hint: "Frente al mostrador, donde se paga." },
+  { label: 3, r: { x0: 0.5, x1: 3.5, z0: 10.5, z1: 12 }, hint: "Al fondo a la izquierda, las cortinas." },
+  { label: 4, r: { x0: 6, x1: 9, z0: 10.5, z1: 12 }, hint: "Al fondo a la derecha, el perchero." },
+];
+let zones = new Int8Array(COLS * ROWS).fill(-1);
+const cellIdx = (x, z) => { const c = Math.floor(x / CELL), r = Math.floor(z / CELL); return c < 0 || r < 0 || c >= COLS || r >= ROWS ? -1 : r * COLS + c; };
+function missionIoU(m) {
+  let inter = 0, uni = 0;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const cx = (c + .5) * CELL, cz = (r + .5) * CELL;
+    const t = cx > m.r.x0 && cx < m.r.x1 && cz > m.r.z0 && cz < m.r.z1;
+    const p = zones[r * COLS + c] === m.label;
+    if (t && p) inter++; if (t || p) uni++;
+  }
+  return uni ? inter / uni : 0;
+}
+
+// ───────────────────────── Mobiliario
+const PROD_COLORS = ["#d9534f", "#f0ad4e", "#5bc0de", "#9bd36b", "#e8e2d0", "#b07cc6", "#ef7b45", "#4f86c6", "#f2d14b"];
+const SHELVES = [{ x0: 2.5, x1: 3.2 }, { x0: 4.8, x1: 5.5 }];
+const SEG_Z0 = 5.7, SEG_L = 1.1, NSEG = 4, SHELF_H = 1.55;
+const COUNTER = { x0: 7.5, x1: 8.3, z0: 2.6, z1: 5.4, h: 1.0 };
+const RACK = { x0: 6.6, x1: 8.6, z: 11.15 };
+const ISLAND = { x0: 3.4, x1: 5.2, z0: 1.0, z1: 1.9, h: .75 };
+const ISLAND_ITEMS = Array.from({ length: 10 }, (_, i) => ({ x: ISLAND.x0 + .12 + (i % 5) * .34, z: ISLAND.z0 + .15 + Math.floor(i / 5) * .38, c: PROD_COLORS[(i * 4) % PROD_COLORS.length] }));
+const MANNEQUIN_POS = { x: 0.75, z: 8.4 };
+let products = [];
+function resetProducts() {
+  products = [];
+  for (let s = 0; s < 2; s++) for (let g = 0; g < NSEG; g++) for (let side = 0; side < 2; side++)
+    for (let l = 0; l < 3; l++) for (let k = 0; k < 3; k++)
+      products.push({ s, g, side, l, k, color: pick(PROD_COLORS), present: true });
+}
+const productsAt = (s, g, side) => products.filter(p => p.s === s && p.g === g && p.side === side);
+
+// ───────────────────────── Navegación
+const N = {
+  OUT: [-1.4, 4], DOOR: [0.45, 4], F1: [1.5, 4], F2: [4.0, 4], F3: [6.4, 4], PAY: [7.05, 4],
+  B1: [1.5, 10.65], B2: [4.0, 10.65], B3: [6.4, 10.65], R: [8.6, 10.65],
+  S: [9.2, 10.65], SD: [9.2, 11.8], SOUT: [9.2, 12.9], CASH: [9.0, 4.0],
+};
+const EDGES = [["OUT", "DOOR"], ["DOOR", "F1"], ["F1", "F2"], ["F2", "F3"], ["F3", "PAY"], ["F1", "B1"], ["F2", "B2"], ["F3", "B3"],
+  ["B1", "B2"], ["B2", "B3"], ["B3", "R"], ["R", "S"], ["S", "SD"], ["SD", "SOUT"], ["S", "CASH"]];
+const ADJ = {};
+for (const k in N) ADJ[k] = [];
+for (const [a, b] of EDGES) { const d = Math.hypot(N[a][0] - N[b][0], N[a][1] - N[b][1]); ADJ[a].push([b, d]); ADJ[b].push([a, d]); }
+function dijkstra(src) {
+  const dist = {}, prev = {}, q = new Set(Object.keys(N));
+  for (const k in N) dist[k] = Infinity; dist[src] = 0;
+  while (q.size) {
+    let u = null; for (const k of q) if (u === null || dist[k] < dist[u]) u = k;
+    q.delete(u);
+    for (const [v, w] of ADJ[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; prev[v] = u; }
+  }
+  return { dist, prev };
+}
+const DJ = {}; for (const k in N) DJ[k] = dijkstra(k);
+function nodePath(a, b) { const out = []; let c = b; while (c && c !== a) { out.unshift(c); c = DJ[a].prev[c]; } return out; }
+// Un "lugar" es un nodo o un punto sobre un tramo con dos nodos ancla.
+const placeAnchors = pl => pl.node ? [pl.node] : pl.anchors;
+const placeXY = pl => pl.node ? { x: N[pl.node][0], z: N[pl.node][1] } : { x: pl.x, z: pl.z };
+function route(from, to) {
+  if (!from.node && !to.node && from.anchors.join() === to.anchors.join()) return [placeXY(to)];
+  let best = null;
+  const fx = placeXY(from), tx = placeXY(to);
+  for (const a of placeAnchors(from)) for (const b of placeAnchors(to)) {
+    const d = Math.hypot(fx.x - N[a][0], fx.z - N[a][1]) + DJ[a].dist[b] + Math.hypot(tx.x - N[b][0], tx.z - N[b][1]);
+    if (!best || d < best.d) best = { d, a, b };
+  }
+  const pts = [];
+  if (!from.node) pts.push({ x: N[best.a][0], z: N[best.a][1] });
+  for (const k of nodePath(best.a, best.b)) pts.push({ x: N[k][0], z: N[k][1] });
+  if (!to.node) pts.push(tx);
+  return pts;
+}
+// Puntos de interés
+const AISLES = [
+  { x: 1.5, anchors: ["F1", "B1"], faces: [{ s: 0, side: 0, dir: 1 }] },
+  { x: 4.0, anchors: ["F2", "B2"], faces: [{ s: 0, side: 1, dir: -1 }, { s: 1, side: 0, dir: 1 }] },
+  { x: 6.4, anchors: ["F3", "B3"], faces: [{ s: 1, side: 1, dir: -1 }] },
+];
+function aislePOI(prefer) {
+  const a = pick(AISLES), f = pick(a.faces);
+  let g = Math.floor(Math.random() * NSEG);
+  if (prefer) { // empleados: buscar el tramo con más faltantes
+    let bestMiss = -1;
+    for (const A of AISLES) for (const F of A.faces) for (let gg = 0; gg < NSEG; gg++) {
+      const miss = productsAt(F.s, gg, F.side).filter(p => !p.present).length + Math.random() * .5;
+      if (miss > bestMiss) { bestMiss = miss; prefer = { A, F, gg }; }
+    }
+    return { x: prefer.A.x + prefer.F.dir * 0.15, z: SEG_Z0 + (prefer.gg + .5) * SEG_L, anchors: prefer.A.anchors, face: prefer.F, seg: prefer.gg, look: prefer.F.dir };
+  }
+  return { x: a.x + f.dir * 0.15, z: SEG_Z0 + (g + rnd(.25, .75)) * SEG_L, anchors: a.anchors, face: f, seg: g, look: f.dir };
+}
+const rackPOI = () => ({ x: rnd(6.8, 8.3), z: 10.65, anchors: ["B3", "R"], look: 0, back: true });
+const probPOI = () => ({ x: rnd(1.7, 3.1), z: 10.65, anchors: ["B1", "B2"], look: 0, back: true });
+const PAY_SLOTS = [3.25, 4.0, 4.75];
+function payPOI() {
+  const used = people.filter(p => p.paySlot != null).map(p => p.paySlot);
+  const free = PAY_SLOTS.map((z, i) => i).filter(i => !used.includes(i));
+  const i = free.length ? free[0] : 1;
+  return { x: 7.08, z: PAY_SLOTS[i], anchors: ["F3", "PAY"], slot: i, look: 1 };
+}
+
+// ───────────────────────── Niveles
+const LEVELS = [
+  { name: "Apertura", start: 9 * 3600, dur: 90, spawn: [4.5, 7.5], thieves: 1, restock: 1, maxIn: 6, hoodDecoy: 0, thiefBare: 0, flicker: 0 },
+  { name: "Mediodía", start: 13 * 3600, dur: 100, spawn: [3.2, 5.5], thieves: 2, restock: 1, maxIn: 8, hoodDecoy: .15, thiefBare: .25, flicker: 0 },
+  { name: "Hora pico", start: 18.5 * 3600, dur: 120, spawn: [2, 3.8], thieves: 3, restock: 2, maxIn: 12, hoodDecoy: .25, thiefBare: .4, flicker: .6 },
+];
+function levelCfg(i) {
+  if (i < LEVELS.length) return LEVELS[i];
+  const k = i - LEVELS.length + 1, b = LEVELS[LEVELS.length - 1];
+  return { ...b, name: `Liquidación ${k}`, spawn: [Math.max(1.2, b.spawn[0] - .3 * k), Math.max(2, b.spawn[1] - .4 * k)], thieves: b.thieves + k, maxIn: b.maxIn + 2 * k };
+}
+
+// ───────────────────────── Personas
+const SKIN = ["#f1c9a5", "#e0ac85", "#c68b62", "#9a6440", "#6e4529"];
+const HAIR = ["#1d1714", "#3b2618", "#6b4423", "#a8743a", "#d8b46a", "#8a8a8a", "#5a1f12"];
+const SHIRT = ["#6b7f99", "#a35d4f", "#4f7a5c", "#c9b26b", "#7d5a8c", "#d0d3d6", "#3f4a5a", "#b5835a", "#5c8c8f", "#9c4d63", "#e3e0d6"];
+const PANTS = ["#2c3644", "#3b3b3b", "#5a4a3a", "#2f4f6f", "#6d6d6d", "#1f2a33", "#7a6a55"];
+const DRESS = ["#8c3a4a", "#3d5e8c", "#c47b3a", "#5f7f4f", "#7a4f8c", "#d9c2a3"];
+const HOODIE = ["#23272b", "#2e3440", "#3a3a3a", "#1f2d3d", "#3b2f2f"];
+let people = [], nextId = 1, trackSeq = 1;
+
+function makeLook(gender, role, cfg) {
+  const L = { skin: pick(SKIN), hair: pick(HAIR), shirt: pick(SHIRT), pants: pick(PANTS), shoes: "#191919" };
+  L.hairStyle = gender === "M" ? pick(["largo", "largo", "cola", "rodete", "melena"]) : pick(["corto", "corto", "rapado", "corto"]);
+  if (gender === "H" && Math.random() < .2) L.beard = true;
+  if (gender === "M" && role === "cliente" && Math.random() < .35) L.dress = pick(DRESS);
+  if (role === "empleado") { L.vest = true; L.shirt = "#2b3238"; L.pants = "#232a30"; }
+  if (role === "ladron") {
+    L.hoodie = pick(HOODIE); L.pants = pick(["#1f2a33", "#2c3644", "#3b3b3b"]);
+    if (Math.random() >= cfg.thiefBare) L.hood = true;
+    if (Math.random() < .4) L.glasses = true;
+    if (!L.hood && Math.random() < .5) L.cap = "#1d1d1d";
+  }
+  if (role === "cliente" && Math.random() < cfg.hoodDecoy) { L.hoodie = pick(HOODIE); L.hood = true; L.dress = null; }
+  if (role === "cliente" && !L.hood && Math.random() < .12) L.cap = pick(["#b33a3a", "#2f4f6f", "#e3e0d6"]);
+  return L;
+}
+
+function spawnPerson(role, opts = {}) {
+  const cfg = levelCfg(game.level);
+  const gender = Math.random() < .5 ? "H" : "M";
+  const p = {
+    id: nextId++, role, gender, look: makeLook(gender, role, cfg),
+    h: gender === "H" ? rnd(1.70, 1.88) : rnd(1.58, 1.74),
+    x: 0, z: 0, speed: role === "ladron" ? rnd(1.0, 1.15) : rnd(.8, 1.0),
+    wp: [], tasks: [], task: null, tt: 0, phase: Math.random() * 6, moving: false,
+    faceBack: false, lookDir: 0, headTurn: 0, anim: null, animT: 0,
+    basket: false, basketItems: 0, bag: false, box: false, handItem: null, stolen: 0,
+    track: null, hist: [], zoneTime: {}, place: null, born: game.t, paySlot: null, clip: null,
+  };
+  if (role === "cliente") p.basket = Math.random() < .6;
+  if (opts.cashier) {
+    p.cashier = true; p.place = { node: "CASH" }; p.x = N.CASH[0]; p.z = N.CASH[1];
+    p.tasks.push({ k: "idle" });
+  } else if (role === "empleado") {
+    p.place = { node: "SOUT" }; p.x = N.SOUT[0]; p.z = N.SOUT[1]; p.box = true;
+    const n = 2;
+    for (let i = 0; i < n; i++) { p.tasks.push({ k: "go", to: () => aislePOI(true) }); p.tasks.push({ k: "stock" }); }
+    p.tasks.push({ k: "go", to: () => ({ node: "SOUT" }) }); p.tasks.push({ k: "leave" });
+  } else {
+    p.place = { node: "OUT" }; p.x = N.OUT[0]; p.z = N.OUT[1];
+    if (role === "ladron") {
+      if (Math.random() < .5) { p.tasks.push({ k: "go", to: () => Math.random() < .5 ? rackPOI() : aislePOI() }); p.tasks.push({ k: "wait", t: rnd(1.5, 3), anim: "browse" }); }
+      p.tasks.push({ k: "go", to: aislePOI }); p.tasks.push({ k: "wait", t: rnd(1.6, 2.6), anim: "nervous" });
+      p.tasks.push({ k: "grab", mode: "hide" });
+      if (Math.random() < .5) { p.tasks.push({ k: "go", to: aislePOI }); p.tasks.push({ k: "wait", t: 1.2, anim: "nervous" }); p.tasks.push({ k: "grab", mode: "hide" }); }
+      p.tasks.push({ k: "hurry" });
+      p.tasks.push({ k: "go", to: () => ({ node: "OUT" }) }); p.tasks.push({ k: "leave" });
+    } else {
+      const stops = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < stops; i++) {
+        const r = Math.random();
+        const poi = r < .7 ? aislePOI : r < .85 ? rackPOI : probPOI;
+        p.tasks.push({ k: "go", to: poi }); p.tasks.push({ k: "wait", t: rnd(1.8, 4.5), anim: "browse" });
+        if (p.basket && poi === aislePOI && Math.random() < .75) p.tasks.push({ k: "grab", mode: "basket" });
+      }
+      p.tasks.push({ k: "checkout" });
+      p.tasks.push({ k: "go", to: () => ({ node: "OUT" }) }); p.tasks.push({ k: "leave" });
+    }
+  }
+  people.push(p);
+  game.stats.spawned++;
+  if (role === "ladron") game.stats.thieves++;
+  return p;
+}
+
+function startTask(p) {
+  p.task = p.tasks.shift() || { k: "leave" };
+  const T = p.task;
+  p.tt = 0; p.anim = null;
+  if (T.k === "go") {
+    const to = T.to();
+    p.wp = route(p.place, to); p.target = to;
+  } else if (T.k === "checkout") {
+    if (p.basketItems > 0) {
+      const poi = payPOI(); p.paySlot = poi.slot;
+      p.tasks.unshift({ k: "go", to: () => poi }, { k: "wait", t: rnd(2.5, 4), anim: "pay" }, { k: "paid" });
+    }
+    p.task = null;
+  } else if (T.k === "paid") {
+    p.paySlot = null; p.basket = false; p.basketItems = 0; p.bag = true; p.task = null;
+    floatText(p, "PAGÓ", "#cfd8d4", 0);
+  } else if (T.k === "hurry") { p.speed = 1.45; p.task = null; }
+  else if (T.k === "grab") { p.anim = "reach"; T.t = 1.1; }
+  else if (T.k === "stock") { p.anim = "stock"; T.t = 3.5; }
+}
+
+function faceProducts(p) {
+  const pl = p.place; if (!pl || !pl.face) return [];
+  return productsAt(pl.face.s, pl.seg, pl.face.side);
+}
+
+function updatePerson(p, dt) {
+  p.hist.push({ t: game.t, b: personBox(p) });
+  while (p.hist.length && p.hist[0].t < game.t - 2.2) p.hist.shift();
+  if (p.wp.length) {
+    const w = p.wp[0], dx = w.x - p.x, dz = w.z - p.z, d = Math.hypot(dx, dz), step = p.speed * dt;
+    if (d <= step) { p.x = w.x; p.z = w.z; p.wp.shift(); if (!p.wp.length) { p.place = p.target; p.task = null; } }
+    else { p.x += dx / d * step; p.z += dz / d * step; }
+    p.moving = true; p.phase += dt * p.speed * 7.5;
+    if (Math.abs(dz) > .02) p.faceBack = dz > 0;
+    p.headTurn += (0 - p.headTurn) * Math.min(1, dt * 6);
+    return;
+  }
+  p.moving = false;
+  if (!p.task) { startTask(p); return; }
+  const T = p.task; p.tt += dt;
+  const pl = p.place || {};
+  if (pl.back) p.faceBack = true; else if (pl.look) p.faceBack = false;
+  const lookTarget = pl.look || 0;
+  if (T.k === "idle") {
+    p.headTurn = Math.sin(game.t * .7 + p.id) * .5;
+    if (p.cashier) p.faceBack = false;
+    return;
+  }
+  if (T.k === "wait") {
+    p.anim = T.anim;
+    if (T.anim === "nervous") p.headTurn = Math.sin(p.tt * 5.5) * 1.2;
+    else p.headTurn += (lookTarget * .8 - p.headTurn) * Math.min(1, dt * 4);
+    if (p.tt >= T.t) p.task = null;
+  } else if (T.k === "grab") {
+    p.headTurn = T.mode === "hide" ? Math.sin(p.tt * 7) * 1.1 : lookTarget * .8;
+    if (!T.done && p.tt > .45) {
+      T.done = true;
+      const avail = faceProducts(p).filter(x => x.present);
+      if (avail.length) {
+        const it = pick(avail); it.present = false; p.handItem = it.color;
+        if (T.mode === "hide") { p.stolen++; }
+      }
+    }
+    if (p.tt > .85 && p.handItem) {
+      if (T.mode === "basket") p.basketItems++;
+      p.handItem = null;
+    }
+    if (p.tt >= T.t) { p.task = null; p.anim = null; }
+  } else if (T.k === "stock") {
+    p.headTurn = lookTarget * .8;
+    if (p.tt > 1.2 && !T.done) {
+      T.done = true;
+      for (const it of faceProducts(p)) if (!it.present && Math.random() < .9) { it.present = true; it.color = pick(PROD_COLORS); }
+    }
+    if (p.tt >= T.t) { p.task = null; p.anim = null; }
+  } else if (T.k === "leave") {
+    settle(p, false);
+    people.splice(people.indexOf(p), 1);
+  }
+}
+
+// Caja de verdad (en px de pantalla) que se usa para el IoU.
+function personBox(p) {
+  const f = proj(p.x, 0, p.z), t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
+  return { x: f.x - 23 * s, y: f.y - 172 * s, w: 46 * s, h: 175 * s };
+}
+function iou(a, b) {
+  const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+  const i = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  return i / (a.w * a.h + b.w * b.h - i || 1);
+}
+function mannequinBox() {
+  const p = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78 };
+  return personBox(p);
+}
+
+// ───────────────────────── Estado del juego
+const game = {
+  state: "intro", level: 0, t: 0, score: 0, levelScore: 0, best: 0, mode: "detect", label: 0, brush: 1, erase: false, heat: false,
+  stats: null, spawnIn: 2, thiefTimes: [], restockTimes: [], heatGrid: new Float32Array(COLS * ROWS), paused: false,
+};
+try { game.best = +localStorage.getItem("lv-camara-best") || 0; } catch (e) { }
+function freshStats() {
+  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, robbed: 0, falseAcc: 0, missed: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
+}
+
+function setupLevel() {
+  const cfg = levelCfg(game.level);
+  people = []; floats = []; resetProducts();
+  game.t = 0; game.levelScore = 0; game.stats = freshStats(); game.heatGrid.fill(0);
+  game.spawnIn = 1.5;
+  game.thiefTimes = Array.from({ length: cfg.thieves }, (_, i) => 12 + (cfg.dur - 45) * (i + Math.random() * .8) / cfg.thieves).sort((a, b) => a - b);
+  game.restockTimes = Array.from({ length: cfg.restock }, (_, i) => 20 + (cfg.dur - 50) * (i + Math.random() * .6) / cfg.restock);
+  // algunos huecos de mercadería para que los repositores tengan trabajo
+  for (const it of products) if (Math.random() < .08) it.present = false;
+  spawnPerson("empleado", { cashier: true });
+  closePopup();
+  logEvent(`Turno ${game.level + 1} · ${cfg.name}`, "", "");
+  updateHud(); renderMissions();
+}
+
+function scorePoints(n, kind) {
+  game.score += n; game.levelScore += n;
+  if (kind) game.stats[kind] += n;
+  const el = document.getElementById("hudScore");
+  el.classList.remove("bump", "drop"); void el.offsetWidth; el.classList.add(n >= 0 ? "bump" : "drop");
+  clearTimeout(scorePoints.t); scorePoints.t = setTimeout(() => el.classList.remove("bump", "drop"), 600);
+}
+
+// Liquidación de una persona al salir (o al cerrar el turno).
+function settle(p, atEnd) {
+  const S = game.stats;
+  if (p.track) {
+    for (const k in p.zoneTime) {
+      const z = (S.zone[k] = S.zone[k] || { visits: 0, time: 0 });
+      if (p.zoneTime[k] >= 1) z.visits++; z.time += p.zoneTime[k];
+    }
+  }
+  const where = atEnd ? null : p;
+  if (!p.track) {
+    S.missed++; scorePoints(-40, "penScore");
+    floatAtDoor(p, "SE FUE SIN DETECTAR −40", "#ff5a52");
+    logEvent(`Persona sin detectar`, "−40", "n");
+    if (p.role === "ladron" && p.stolen) { S.robbed++; scorePoints(-150, "penScore"); floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52", 22); logEvent("Robo sin detectar", "−150", "n"); }
+    return;
+  }
+  const g = p.track.type, truth = p.role;
+  if (truth === "ladron") {
+    if (g === "ladron") {
+      S.caught++; S.tOK++; S.tTot++; scorePoints(200, "clsScore");
+      floatAtDoor(p, "¡ATRAPADO! +200", "#43e08a"); logEvent(`ID ${p.track.id} ladrón atrapado`, "+200", "p");
+    } else if (p.stolen) {
+      S.robbed++; S.tTot++; scorePoints(-150, "penScore");
+      floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52"); logEvent(`ID ${p.track.id} era ladrón`, "−150", "n");
+    } else if (g) { S.tTot++; scorePoints(-30, "penScore"); logEvent(`ID ${p.track.id} era ladrón`, "−30", "n"); }
+    return;
+  }
+  if (!g) { if (!atEnd) floatAtDoor(p, "SIN CLASIFICAR", "#8d9e9a"); return; }
+  S.tTot++;
+  if (g === "ladron") {
+    S.falseAcc++; scorePoints(-120, "penScore");
+    floatAtDoor(p, "ACUSACIÓN FALSA −120", "#ff5a52"); logEvent(`ID ${p.track.id} era ${truth}`, "−120", "n");
+  } else if (g === truth) {
+    S.tOK++; const n = truth === "empleado" ? 40 : 15; scorePoints(n, "clsScore");
+    if (!atEnd) floatAtDoor(p, `${truth.toUpperCase()} ✓ +${n}`, truth === "empleado" ? "#52c7ff" : "#43e08a");
+  } else {
+    scorePoints(-10, "penScore"); if (!atEnd) floatAtDoor(p, `ERA ${truth.toUpperCase()} −10`, "#ffb547");
+  }
+}
+
+// ───────────────────────── Textos flotantes
+let floats = [];
+function floatText(p, txt, color, dy = 0) { const b = personBox(p); floats.push({ x: b.x + b.w / 2, y: b.y - 10 - dy, txt, color, t: 0 }); }
+function floatAt(x, y, txt, color) { floats.push({ x, y, txt, color, t: 0 }); }
+function floatAtDoor(p, txt, color, dy = 0) {
+  if (p.x < 1.2 || p.z > 11.5) { const d = proj(p.x < 1.2 ? 0.3 : p.x, 2.0, p.x < 1.2 ? 4 : 11.6); floatAt(d.x + (p.x < 1.2 ? 70 : 0), d.y - dy, txt, color); }
+  else floatText(p, txt, color, dy);
+}
+
+// ───────────────────────── Registro
+const feedEl = document.getElementById("feed");
+function logEvent(txt, pts, cls) {
+  const cfg = levelCfg(game.level);
+  const li = document.createElement("li");
+  li.innerHTML = `<span>${fmtClock(cfg.start + game.t * 60).slice(0, 5)}</span><em></em><span class="${cls}">${pts}</span>`;
+  li.querySelector("em").textContent = txt;
+  if (feedEl.firstChild && feedEl.firstChild.textContent.includes("en espera")) feedEl.innerHTML = "";
+  feedEl.prepend(li);
+  while (feedEl.children.length > 40) feedEl.lastChild.remove();
+}
+
+// ───────────────────────── Detección (dibujo de recuadros)
+let drag = null;
+function canvasPt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
+cv.addEventListener("pointerdown", e => {
+  if (game.state !== "play" && game.state !== "setup") return;
+  if (game.paused) return;
+  cv.setPointerCapture(e.pointerId);
+  const pt = canvasPt(e);
+  if (game.mode === "zones") { drag = { zone: true }; paintAt(pt); return; }
+  if (game.state !== "play") return;
+  drag = { x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y, t0: game.t };
+});
+cv.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const pt = canvasPt(e);
+  if (drag.zone) { paintAt(pt); return; }
+  drag.x1 = pt.x; drag.y1 = pt.y;
+});
+const endDrag = () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.zone) { renderMissions(); saveHot(); return; }
+  const box = { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0) };
+  if (box.w < 10 && box.h < 10) { clickAt(d.x0, d.y0); return; }
+  if (box.w < 10 || box.h < 18) return;
+  evaluateBox(box, d.t0);
+};
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", () => { drag = null; });
+
+function clickAt(x, y) {
+  let hit = null, hd = Infinity;
+  for (const p of people) if (p.track) {
+    const b = personBox(p);
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { const d = proj(p.x, 0, p.z).d; if (d < hd) { hd = d; hit = p; } }
+  }
+  if (hit) openPopup(hit);
+}
+
+function evaluateBox(box, t0) {
+  const S = game.stats;
+  let best = null, bestIoU = 0;
+  for (const p of people) {
+    if (p.x < -0.1 || p.z > 12) continue; // todavía afuera
+    let m = 0;
+    for (const h of p.hist) if (h.t >= t0 - .15) m = Math.max(m, iou(box, h.b));
+    m = Math.max(m, iou(box, personBox(p)));
+    if (m > bestIoU) { bestIoU = m; best = p; }
+  }
+  const mIoU = iou(box, mannequinBox());
+  const cx = box.x + box.w / 2, cy = box.y;
+  if (mIoU > .3 && mIoU >= bestIoU) {
+    S.mannequin++; scorePoints(-50, "penScore");
+    floatAt(cx, cy - 8, "ES UN MANIQUÍ −50", "#ffb547"); logEvent("Marcaste el maniquí", "−50", "n");
+    flashBox(box, "#ffb547"); return;
+  }
+  if (!best || bestIoU < .4) {
+    S.fp++; scorePoints(-25, "penScore");
+    floatAt(cx, cy - 8, bestIoU > .2 ? `RECUADRO FLOJO (IoU ${bestIoU.toFixed(2)}) −25` : "FALSO POSITIVO −25", "#ff5a52");
+    flashBox(box, "#ff5a52"); return;
+  }
+  if (best.track) {
+    S.dup++; scorePoints(-10, "penScore");
+    floatAt(cx, cy - 8, `YA ES ID ${String(best.track.id).padStart(2, "0")} −10`, "#ffb547");
+    flashBox(box, "#ffb547"); return;
+  }
+  const pts = bestIoU >= .75 ? 100 : bestIoU >= .58 ? 70 : 40;
+  const word = bestIoU >= .75 ? "PERFECTO" : bestIoU >= .58 ? "MUY BIEN" : "BIEN";
+  S.tp++; S.ious.push(bestIoU); scorePoints(pts, "detScore");
+  best.track = { id: trackSeq++, gender: null, type: null, born: game.t };
+  floatText(best, `${word} · IoU ${bestIoU.toFixed(2)} +${pts}`, "#43e08a");
+  logEvent(`ID ${String(best.track.id).padStart(2, "0")} detectado`, `+${pts}`, "p");
+  openPopup(best);
+}
+let flashes = [];
+function flashBox(b, color) { flashes.push({ b, color, t: 0 }); }
+
+// ───────────────────────── Popup de clasificación
+const pop = document.getElementById("pop");
+let popFor = null, popCloseTimer = null;
+function openPopup(p) {
+  popFor = p; clearTimeout(popCloseTimer);
+  document.getElementById("popTitle").textContent = `ID ${String(p.track.id).padStart(2, "0")} · CLASIFICAR`;
+  syncPopup(); pop.hidden = false; placePopup();
+}
+function closePopup() { popFor = null; pop.hidden = true; clearTimeout(popCloseTimer); }
+function syncPopup() {
+  if (!popFor) return;
+  const tr = popFor.track;
+  pop.querySelectorAll("[data-g]").forEach(b => { b.setAttribute("aria-pressed", String(tr.gender === b.dataset.g)); b.disabled = !!tr.gender; });
+  pop.querySelectorAll("[data-t]").forEach(b => b.setAttribute("aria-pressed", String(tr.type === b.dataset.t)));
+}
+function placePopup() {
+  if (!popFor) return;
+  const r = cv.getBoundingClientRect(), k = r.width / W, b = personBox(popFor);
+  const pw = pop.offsetWidth || 220, ph = pop.offsetHeight || 140;
+  let left = (b.x + b.w) * k + 10, top = b.y * k;
+  if (left + pw > r.width - 6) left = b.x * k - pw - 10;
+  left = clamp(left, 6, r.width - pw - 6); top = clamp(top, 6, r.height - ph - 6);
+  pop.style.left = left + "px"; pop.style.top = top + "px";
+}
+function chooseGender(g) {
+  const p = popFor; if (!p || p.track.gender) return;
+  p.track.gender = g; game.stats.gTot++;
+  if (g === p.gender) { game.stats.gOK++; scorePoints(25, "clsScore"); floatText(p, "GÉNERO ✓ +25", "#43e08a", 16); }
+  else { scorePoints(-15, "penScore"); floatText(p, "GÉNERO ✗ −15", "#ff5a52", 16); }
+  syncPopup(); maybeAutoClose();
+}
+function chooseType(t) {
+  const p = popFor; if (!p) return;
+  p.track.type = t; syncPopup();
+  if (t === "ladron") logEvent(`ID ${String(p.track.id).padStart(2, "0")} marcado como ladrón`, "", "n");
+  maybeAutoClose();
+}
+function maybeAutoClose() {
+  if (popFor && popFor.track.gender && popFor.track.type) { clearTimeout(popCloseTimer); popCloseTimer = setTimeout(closePopup, 350); }
+}
+pop.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "popClose") closePopup();
+  else if (b.dataset.g) chooseGender(b.dataset.g);
+  else if (b.dataset.t) chooseType(b.dataset.t);
+});
+
+// ───────────────────────── Zonas: pintar sobre el piso
+function paintAt(pt) {
+  const w = unproj(pt.x, pt.y); if (!w) return;
+  const big = game.brush === 2;
+  const c0 = big ? Math.round(w.x / CELL) : Math.floor(w.x / CELL), r0 = big ? Math.round(w.z / CELL) : Math.floor(w.z / CELL);
+  for (const c of big ? [c0 - 1, c0] : [c0]) for (const r of big ? [r0 - 1, r0] : [r0]) {
+    if (c < 0 || r < 0 || c >= COLS || r >= ROWS) continue;
+    zones[r * COLS + c] = game.erase ? -1 : game.label;
+  }
+}
+
+// ───────────────────────── Bucle
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (game.state === "play" && !game.paused) {
+    const slow = popFor ? .25 : 1;
+    update(dt * slow);
+  } else if (game.state === "setup") {
+    for (const p of people) { p.headTurn = Math.sin(now / 1400 + p.id) * .5; }
+  }
+  for (const f of floats) f.t += dt;
+  floats = floats.filter(f => f.t < 1.8);
+  for (const f of flashes) f.t += dt;
+  flashes = flashes.filter(f => f.t < .6);
+  render(now / 1000);
+  if (popFor) placePopup();
+  requestAnimationFrame(frame);
+}
+
+let hudTick = 0;
+function update(dt) {
+  const cfg = levelCfg(game.level);
+  game.t += dt;
+  const remaining = cfg.dur - game.t;
+  // aparición de gente
+  if (remaining > 14) {
+    game.spawnIn -= dt;
+    const inside = people.length;
+    if (game.thiefTimes.length && game.t >= game.thiefTimes[0] && inside < cfg.maxIn + 1) { game.thiefTimes.shift(); spawnPerson("ladron"); }
+    else if (game.restockTimes.length && game.t >= game.restockTimes[0]) { game.restockTimes.shift(); spawnPerson("empleado"); }
+    else if (game.spawnIn <= 0) {
+      game.spawnIn = rnd(cfg.spawn[0], cfg.spawn[1]);
+      if (inside < cfg.maxIn) spawnPerson("cliente");
+    }
+  }
+  for (const p of people.slice()) updatePerson(p, dt);
+  if (popFor && !people.includes(popFor)) closePopup();
+  // analítica: solo cuenta a quien detectaste
+  for (const p of people) if (p.track) {
+    const i = cellIdx(p.x, p.z); if (i < 0) continue;
+    game.heatGrid[i] += dt;
+    const z = zones[i]; const key = z >= 0 ? LABELS[z].name : "Sin zona";
+    p.zoneTime[key] = (p.zoneTime[key] || 0) + dt;
+  }
+  hudTick -= dt;
+  if (hudTick <= 0) { hudTick = .25; updateHud(); }
+  if (game.t >= cfg.dur) endShift();
+}
+
+function endShift() {
+  for (const p of people) settle(p, true);
+  closePopup();
+  game.state = "report";
+  updateHud();
+  showReport();
+}
+
+// ───────────────────────── Render
+const noise = document.createElement("canvas"); noise.width = 256; noise.height = 256;
+{ const n = noise.getContext("2d"), d = n.createImageData(256, 256); for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 18; } n.putImageData(d, 0, 0); }
+const scan = document.createElement("canvas"); scan.width = 4; scan.height = 4;
+{ const s = scan.getContext("2d"); s.fillStyle = "rgba(0,0,0,.18)"; s.fillRect(0, 0, 4, 1); }
+let scanPat = null;
+
+function poly(pts, fill, stroke, lw = 1) {
+  ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+}
+const P = (x, y, z) => proj(x, y, z);
+const quad = (a, b, c, d) => [P(...a), P(...b), P(...c), P(...d)];
+// Texto apoyado sobre un plano del mundo (piso o pared). u = derecha del texto, v = abajo del texto.
+function planeText(txt, o, u, v, sizeDm, color, align = "center", weight = 700, font = "Chakra Petch") {
+  const p0 = P(...o), pu = P(o[0] + u[0] * .1, o[1] + u[1] * .1, o[2] + u[2] * .1), pv = P(o[0] + v[0] * .1, o[1] + v[1] * .1, o[2] + v[2] * .1);
+  ctx.save();
+  setT(pu.x - p0.x, pu.y - p0.y, pv.x - p0.x, pv.y - p0.y, p0.x, p0.y);
+  ctx.font = `${weight} ${sizeDm}px "${font}", sans-serif`; ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.fillStyle = color; ctx.fillText(txt, 0, 0);
+  ctx.restore();
+}
+
+function drawRoom(time) {
+  // piso base (cubre todo)
+  ctx.fillStyle = "#6f7470"; ctx.fillRect(0, 0, W, H);
+  // techo
+  poly(quad([0, STORE.h, -2], [STORE.w, STORE.h, -2], [STORE.w, STORE.h, STORE.d], [0, STORE.h, STORE.d]), "#3a3f40");
+  for (const x of [2.2, 5, 7.8]) for (const z of [1.5, 5, 8.5]) poly(quad([x - .7, STORE.h - .01, z - .18], [x + .7, STORE.h - .01, z - .18], [x + .7, STORE.h - .01, z + .18], [x - .7, STORE.h - .01, z + .18]), "#eef3f0");
+  // paredes
+  poly(quad([0, 0, STORE.d], [STORE.w, 0, STORE.d], [STORE.w, STORE.h, STORE.d], [0, STORE.h, STORE.d]), "#b9b7ae");
+  poly(quad([0, 0, -2], [0, 0, STORE.d], [0, STORE.h, STORE.d], [0, STORE.h, -2]), "#a7a59c");
+  poly(quad([STORE.w, 0, -2], [STORE.w, 0, STORE.d], [STORE.w, STORE.h, STORE.d], [STORE.w, STORE.h, -2]), "#a19f96");
+  // zócalos
+  poly(quad([0, 0, STORE.d - .001], [STORE.w, 0, STORE.d - .001], [STORE.w, .12, STORE.d - .001], [0, .12, STORE.d - .001]), "#6b6a64");
+  // piso
+  poly(quad([0, 0, -2], [STORE.w, 0, -2], [STORE.w, 0, STORE.d], [0, 0, STORE.d]), "#7c817c");
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(40,45,44,.22)";
+  for (let x = 0; x <= STORE.w; x += 1) { const a = P(x, 0, -2), b = P(x, 0, STORE.d); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  for (let z = -2; z <= STORE.d; z += 1) { const a = P(0, 0, z), b = P(STORE.w, 0, z); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+
+  // puerta de entrada (pared izquierda)
+  poly(quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]), "#cfdde0");
+  poly(quad([0, 0, 3], [0, 0, 5], [0, .9, 5], [0, .9, 3]), "#b5c6c4");
+  poly(quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]), null, "#3d4442", 3);
+  { const a = P(0, 0, 4), b = P(0, 2.3, 4); ctx.strokeStyle = "#3d4442"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  poly(quad([0, 2.42, 3.55], [0, 2.42, 4.45], [0, 2.72, 4.45], [0, 2.72, 3.55]), "#1f9d55");
+  planeText("SALIDA", [0.005, 2.57, 4], [0, 0, 1], [0, -1, 0], 1.6, "#eafff2");
+  // felpudo
+  poly(quad([0, .003, 3.1], [1.1, .003, 3.1], [1.1, .003, 4.9], [0, .003, 4.9]), "#4a4f4c");
+
+  // probadores
+  for (const [x0, x1] of [[0.6, 1.9], [2.1, 3.4]]) {
+    poly(quad([x0, 0, STORE.d - .01], [x1, 0, STORE.d - .01], [x1, 2.15, STORE.d - .01], [x0, 2.15, STORE.d - .01]), "#7d3a48");
+    for (let x = x0 + .13; x < x1; x += .2) { const a = P(x, .05, STORE.d - .02), b = P(x, 2.1, STORE.d - .02); ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  }
+  planeText("PROBADORES", [2.0, 2.45, STORE.d - .01], [1, 0, 0], [0, -1, 0], 2.4, "#3a3a36");
+  // póster
+  poly(quad([4.3, 1.35, STORE.d - .01], [6.4, 1.35, STORE.d - .01], [6.4, 2.65, STORE.d - .01], [4.3, 2.65, STORE.d - .01]), "#e8463a");
+  planeText("LIQUIDACIÓN", [5.35, 2.25, STORE.d - .02], [1, 0, 0], [0, -1, 0], 2.6, "#fff4e8");
+  planeText("−30%", [5.35, 1.75, STORE.d - .02], [1, 0, 0], [0, -1, 0], 4.6, "#fff4e8");
+  // puerta de depósito
+  const staffOpen = people.some(p => p.role === "empleado" && !p.cashier && p.z > 11.3);
+  poly(quad([8.65, 0, STORE.d - .01], [9.75, 0, STORE.d - .01], [9.75, 2.2, STORE.d - .01], [8.65, 2.2, STORE.d - .01]), staffOpen ? "#1c1f20" : "#5c6466", "#383d3e", 2);
+  planeText("SOLO PERSONAL", [9.2, 2.38, STORE.d - .01], [1, 0, 0], [0, -1, 0], 1.3, "#3a3a36");
+  // mostrador: cartel colgante "CAJA"
+}
+
+function drawZones() {
+  const show = game.mode === "zones" || game.state === "setup";
+  // relleno
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const z = zones[r * COLS + c]; if (z < 0) continue;
+    const x0 = c * CELL, z0 = r * CELL;
+    poly(quad([x0, .005, z0], [x0 + CELL, .005, z0], [x0 + CELL, .005, z0 + CELL], [x0, .005, z0 + CELL]), LABELS[z].color + (show ? "55" : "38"));
+  }
+  // bordes entre zonas
+  ctx.lineWidth = 2.2;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const z = zones[r * COLS + c]; if (z < 0) continue;
+    const x0 = c * CELL, z0 = r * CELL, col = LABELS[z].color;
+    const edge = (a, b) => { const A = P(...a), B = P(...b); ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); };
+    if (c === 0 || zones[r * COLS + c - 1] !== z) edge([x0, .006, z0], [x0, .006, z0 + CELL]);
+    if (c === COLS - 1 || zones[r * COLS + c + 1] !== z) edge([x0 + CELL, .006, z0], [x0 + CELL, .006, z0 + CELL]);
+    if (r === 0 || zones[(r - 1) * COLS + c] !== z) edge([x0, .006, z0], [x0 + CELL, .006, z0]);
+    if (r === ROWS - 1 || zones[(r + 1) * COLS + c] !== z) edge([x0, .006, z0 + CELL], [x0 + CELL, .006, z0 + CELL]);
+  }
+  // grilla en modo zonas
+  if (show) {
+    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,181,71,.22)";
+    for (let c = 0; c <= COLS; c++) { const a = P(c * CELL, .007, 0), b = P(c * CELL, .007, STORE.d); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    for (let r = 0; r <= ROWS; r++) { const a = P(0, .007, r * CELL), b = P(STORE.w, .007, r * CELL); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  }
+  // etiquetas escritas sobre el piso
+  for (let li = 0; li < LABELS.length; li++) {
+    let n = 0, sx = 0, sz = 0;
+    for (let i = 0; i < zones.length; i++) if (zones[i] === li) { n++; sx += (i % COLS + .5) * CELL; sz += (Math.floor(i / COLS) + .5) * CELL; }
+    if (!n) continue;
+    const size = clamp(Math.sqrt(n) * 1.1, 2.6, 6);
+    planeText(LABELS[li].name.toUpperCase(), [sx / n, .01, sz / n], [1, 0, 0], [0, 0, -1], size, LABELS[li].color, "center", 700);
+  }
+}
+
+function drawHeat() {
+  let max = 0; for (const v of game.heatGrid) max = Math.max(max, v);
+  if (!max) return;
+  for (let i = 0; i < game.heatGrid.length; i++) {
+    const v = game.heatGrid[i] / max; if (v < .03) continue;
+    const c = i % COLS, r = Math.floor(i / COLS), x0 = c * CELL, z0 = r * CELL;
+    const hue = 220 - 220 * Math.pow(v, .6);
+    poly(quad([x0, .008, z0], [x0 + CELL, .008, z0], [x0 + CELL, .008, z0 + CELL], [x0, .008, z0 + CELL]), `hsla(${hue},95%,55%,${.25 + .45 * v})`);
+  }
+}
+
+// Caja 3D con caras visibles
+function drawBox(x0, x1, y0, y1, z0, z1, colors) {
+  const faces = [
+    { n: [0, 0, -1], c: colors.front, pts: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], ref: [(x0 + x1) / 2, (y0 + y1) / 2, z0] },
+    { n: [0, 0, 1], c: colors.front, pts: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], ref: [(x0 + x1) / 2, (y0 + y1) / 2, z1] },
+    { n: [-1, 0, 0], c: colors.side, pts: [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], ref: [x0, (y0 + y1) / 2, (z0 + z1) / 2] },
+    { n: [1, 0, 0], c: colors.side, pts: [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], ref: [x1, (y0 + y1) / 2, (z0 + z1) / 2] },
+    { n: [0, 1, 0], c: colors.top, pts: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], ref: [(x0 + x1) / 2, y1, (z0 + z1) / 2] },
+  ];
+  const vis = [];
+  for (const f of faces) {
+    const v = (CAM.x - f.ref[0]) * f.n[0] + (CAM.y - f.ref[1]) * f.n[1] + (CAM.z - f.ref[2]) * f.n[2];
+    if (v > 0) { poly(f.pts.map(p => P(...p)), f.c, colors.edge, 1); vis.push(f); }
+  }
+  return vis;
+}
+
+function drawShelfSeg(s, g) {
+  const sh = SHELVES[s], z0 = SEG_Z0 + g * SEG_L, z1 = z0 + SEG_L;
+  const vis = drawBox(sh.x0, sh.x1, 0, SHELF_H, z0, z1, { front: "#5d6668", side: "#454d50", top: "#8b9496", edge: "rgba(20,24,25,.6)" });
+  for (const f of vis) {
+    if (f.n[0] === 0) continue;
+    const side = f.n[0] < 0 ? 0 : 1, x = side ? sh.x1 + .01 : sh.x0 - .01;
+    // repisas
+    for (const y of [.12, .57, 1.02, 1.47]) { const a = P(x, y, z0), b = P(x, y, z1); ctx.strokeStyle = "#2b3133"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    for (const it of productsAt(s, g, side)) {
+      if (!it.present) continue;
+      const y = [.13, .58, 1.03][it.l], zz = z0 + .08 + it.k * .34;
+      poly(quad([x, y, zz], [x, y, zz + .27], [x, y + .34, zz + .27], [x, y + .34, zz]), it.color, "rgba(0,0,0,.25)");
+    }
+  }
+}
+
+function drawCounterSeg(i) {
+  const L = (COUNTER.z1 - COUNTER.z0) / 3, z0 = COUNTER.z0 + i * L, z1 = z0 + L;
+  drawBox(COUNTER.x0, COUNTER.x1, 0, COUNTER.h, z0, z1, { front: "#8a6a4a", side: "#6e5238", top: "#c9a77c", edge: "rgba(30,20,10,.5)" });
+  if (i === 1) {
+    drawBox(7.75, 8.15, COUNTER.h, COUNTER.h + .18, 3.8, 4.25, { front: "#2a2e30", side: "#202426", top: "#3b4144", edge: "#111" });
+    poly(quad([7.8, 1.25, 3.85], [7.8, 1.25, 4.2], [7.8, 1.5, 4.2], [7.8, 1.5, 3.85]), "#3fa7c9", "#111", 1.5);
+  }
+}
+
+function drawIsland() {
+  drawBox(ISLAND.x0, ISLAND.x1, 0, ISLAND.h, ISLAND.z0, ISLAND.z1, { front: "#c9c2b0", side: "#a9a291", top: "#e7e1d1", edge: "rgba(40,36,30,.5)" });
+  for (const it of ISLAND_ITEMS) drawBox(it.x, it.x + .22, ISLAND.h, ISLAND.h + .16, it.z, it.z + .24, { front: it.c, side: it.c, top: "#f4f1ea", edge: "rgba(0,0,0,.35)" });
+  poly(quad([ISLAND.x0 + .5, ISLAND.h + .2, ISLAND.z0 + .4], [ISLAND.x1 - .5, ISLAND.h + .2, ISLAND.z0 + .4], [ISLAND.x1 - .5, ISLAND.h + .55, ISLAND.z0 + .4], [ISLAND.x0 + .5, ISLAND.h + .55, ISLAND.z0 + .4]), "#ffd23f", "#6b5a12", 1.5);
+  planeText("2×1", [(ISLAND.x0 + ISLAND.x1) / 2, ISLAND.h + .375, ISLAND.z0 + .39], [1, 0, 0], [0, -1, 0], 2.6, "#5a2a0a");
+}
+
+function drawRack() {
+  const z = RACK.z, y = 1.5;
+  for (const x of [RACK.x0, RACK.x1]) { const a = P(x, 0, z), b = P(x, y, z); ctx.strokeStyle = "#3a3f42"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  const cols = ["#3d5e8c", "#c47b3a", "#8c3a4a", "#d9c2a3", "#5f7f4f", "#2b2b2b", "#7a4f8c", "#b5835a"];
+  let i = 0;
+  for (let x = RACK.x0 + .1; x < RACK.x1 - .1; x += .14) {
+    const c = cols[i++ % cols.length];
+    poly(quad([x - .06, y - .05, z], [x + .06, y - .05, z], [x + .07, .62, z + .02], [x - .07, .62, z + .02]), c, "rgba(0,0,0,.25)");
+  }
+  const a = P(RACK.x0, y, z), b = P(RACK.x1, y, z); ctx.strokeStyle = "#2a2e30"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+}
+
+// Figura humana en unidades locales (pies en 0, cabeza en −170).
+function rr(x, y, w, h, r, c) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = c; ctx.fill(); }
+function circ(x, y, r, c) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); }
+function drawFigure(p, mannequin) {
+  const L = p.look, back = p.faceBack, walk = p.moving ? Math.sin(p.phase) : 0;
+  ctx.beginPath(); ctx.ellipse(0, 0, 24, 7, 0, 0, Math.PI * 2); ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fill();
+  if (mannequin) {
+    ctx.beginPath(); ctx.ellipse(0, 0, 20, 5, 0, 0, Math.PI * 2); ctx.fillStyle = "#9aa3a5"; ctx.fill();
+    rr(-2, -40, 4, 40, 2, "#7c8486");
+  }
+  const torso = L.hoodie || L.shirt;
+  const lift1 = Math.max(0, walk) * 7, lift2 = Math.max(0, -walk) * 7;
+  // piernas
+  const legC = mannequin ? L.skin : L.pants;
+  rr(-12, -84, 10, 84 - lift1 - (mannequin ? 40 : 0), 3, legC);
+  rr(2, -84, 10, 84 - lift2 - (mannequin ? 40 : 0), 3, legC);
+  if (!mannequin) { rr(-13, -7 - lift1, 12, 7, 2, L.shoes); rr(1, -7 - lift2, 12, 7, 2, L.shoes); }
+  // pelo largo por detrás (de frente)
+  const hx = p.headTurn * 3.2;
+  if (!back && ["largo", "melena"].includes(L.hairStyle) && !L.hood) rr(-15 + hx, -170, 30, L.hairStyle === "largo" ? 44 : 30, 9, L.hair);
+  // vestido
+  if (L.dress) { ctx.beginPath(); ctx.moveTo(-16, -138); ctx.lineTo(16, -138); ctx.lineTo(23, -58); ctx.lineTo(-23, -58); ctx.closePath(); ctx.fillStyle = L.dress; ctx.fill(); }
+  // torso
+  rr(-18, -143, 36, 64, 9, L.dress || torso);
+  if (L.hoodie && !back) { rr(-11, -112, 22, 12, 4, "rgba(0,0,0,.22)"); }
+  if (L.vest) {
+    if (back) rr(-17, -141, 34, 56, 7, "#ff7a1a");
+    else { rr(-17, -141, 13, 56, 6, "#ff7a1a"); rr(4, -141, 13, 56, 6, "#ff7a1a"); rr(-12, -132, 7, 5, 1, "#e9eef0"); }
+    rr(-17, -104, 34, 5, 1, "rgba(235,245,248,.9)");
+  }
+  // brazos
+  const swing = walk * .38;
+  const arm = (side, ang, len = 56) => {
+    ctx.save(); ctx.translate(side * 20, -138); ctx.rotate(ang);
+    rr(-5, 0, 10, len, 5, L.dress && !L.hoodie ? L.skin : torso); circ(0, len, 5, L.skin);
+    ctx.restore();
+  };
+  const reach = p.anim === "reach" || p.anim === "stock";
+  const reachDir = (p.place && p.place.look) || 1;
+  if (p.box && !p.cashier && p.moving) {
+    arm(-1, -.55, 46); arm(1, .55, 46);
+    rr(-20, -122, 40, 30, 3, "#b98b55"); rr(-20, -110, 40, 4, 1, "#d8c49a");
+  } else if (reach) {
+    const t = p.tt || 0, up = Math.sin(Math.min(1, t / .45) * Math.PI / 2);
+    const aL = reachDir < 0 ? .2 + 2.2 * up : .08, aR = reachDir > 0 ? -(.2 + 2.2 * up) : -.08;
+    arm(-1, aL, 56); arm(1, aR, 56);
+    if (p.handItem) {
+      const a = reachDir > 0 ? aR : aL, sx = reachDir > 0 ? 20 : -20;
+      rr(sx - 56 * Math.sin(a) - 5, -138 + 56 * Math.cos(a) - 6, 10, 12, 2, p.handItem);
+    }
+  } else if (p.anim === "pay") {
+    arm(-1, .1); arm(1, -.9, 50);
+  } else {
+    arm(-1, .08 + swing); arm(1, -.08 - swing);
+  }
+  // canasto / bolsa
+  if (p.basket) {
+    const bx = -34 + (p.moving ? swing * 12 : 0);
+    ctx.strokeStyle = "#7a1f1f"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bx + 8, -86, 9, Math.PI, 0); ctx.stroke();
+    rr(bx - 4, -86, 24, 16, 3, "#c23b3b");
+    for (let i = 0; i < Math.min(4, p.basketItems); i++) rr(bx - 2 + i * 5, -92, 5, 7, 1, PROD_COLORS[(p.id + i) % PROD_COLORS.length]);
+  }
+  if (p.bag) { rr(24, -92, 16, 22, 2, "#d9c49c"); ctx.strokeStyle = "#8a7550"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(32, -92, 5, Math.PI, 0); ctx.stroke(); }
+  // cuello y cabeza
+  rr(-5, -151, 10, 10, 3, L.skin);
+  if (L.hood) circ(hx * .5, -157, 16.5, L.hoodie);
+  circ(hx, -158, 12, L.skin);
+  if (L.hood) {
+    if (back) circ(hx * .5, -158, 15.5, L.hoodie);
+    else { ctx.beginPath(); ctx.arc(hx * .5, -157, 16.5, Math.PI * 1.02, Math.PI * 1.98); ctx.lineWidth = 6; ctx.strokeStyle = L.hoodie; ctx.stroke(); }
+    if (p.gender === "M" && !back) { rr(-13 + hx, -152, 4, 16, 2, L.hair); rr(9 + hx, -152, 4, 16, 2, L.hair); }
+  } else if (mannequin) {
+    // cabeza lisa
+  } else {
+    const hs = L.hairStyle;
+    if (back) {
+      circ(hx, -159, 12.6, L.hair);
+      if (hs === "largo") rr(-13 + hx, -162, 26, 40, 9, L.hair);
+      if (hs === "melena") rr(-13 + hx, -162, 26, 24, 8, L.hair);
+      if (hs === "cola") rr(-3 + hx, -158, 6, 26, 3, L.hair);
+      if (hs === "rodete") circ(hx, -164, 7, L.hair);
+    } else {
+      ctx.beginPath(); ctx.arc(hx, -159, hs === "rapado" ? 12.2 : 12.8, Math.PI * (hs === "rapado" ? 1.1 : 1.0), Math.PI * (hs === "rapado" ? 1.9 : 2.0)); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill();
+      if (hs === "cola") { rr(9 + hx, -166, 6, 22, 3, L.hair); }
+      if (hs === "rodete") circ(hx, -172, 6.5, L.hair);
+      if (hs === "largo" || hs === "melena") { rr(-13 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); rr(7 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); }
+      if (L.beard) { ctx.beginPath(); ctx.arc(hx, -154, 9.5, Math.PI * .05, Math.PI * .95); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill(); }
+      ctx.fillStyle = "rgba(20,15,12,.75)"; ctx.fillRect(hx - 5 + p.headTurn * 1.5, -160, 2.4, 2.4); ctx.fillRect(hx + 3 + p.headTurn * 1.5, -160, 2.4, 2.4);
+    }
+  }
+  if (L.cap && !L.hood) { ctx.beginPath(); ctx.arc(hx, -161, 13, Math.PI, 0); ctx.closePath(); ctx.fillStyle = L.cap; ctx.fill(); if (!back) rr(hx - 4 + p.headTurn * 4, -163, 18, 4, 2, L.cap); }
+  if (L.glasses && !back) rr(hx - 8 + p.headTurn * 1.5, -162, 16, 5, 2, "#0d0d0d");
+}
+
+function drawPerson(p) {
+  const f = proj(p.x, 0, p.z), t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
+  ctx.save();
+  if (p.x < 0.05) { // detrás de la puerta: solo se ve por el vidrio
+    ctx.beginPath(); quad([0, 0, 3], [0, 0, 5], [0, 2.3, 5], [0, 2.3, 3]).forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.clip();
+  } else if (p.z > STORE.d - .02) {
+    ctx.beginPath(); quad([8.65, 0, STORE.d], [9.75, 0, STORE.d], [9.75, 2.2, STORE.d], [8.65, 2.2, STORE.d]).forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); ctx.clip();
+  }
+  ctx.translate(f.x, f.y); ctx.scale(s, s);
+  drawFigure(p, false);
+  ctx.restore();
+}
+const mannequin = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78, look: { skin: "#e6e2da", hair: "#e6e2da", hairStyle: "none", shirt: "#e6e2da", pants: "#e6e2da", dress: "#2f4f6f", shoes: "#e6e2da" }, faceBack: false, moving: false, headTurn: .6, phase: 0, anim: null, gender: "M" };
+function drawMannequin() {
+  const f = proj(mannequin.x, 0, mannequin.z), t = proj(mannequin.x, mannequin.h, mannequin.z), s = (f.y - t.y) / 170;
+  ctx.save(); ctx.translate(f.x, f.y); ctx.scale(s, s); drawFigure(mannequin, true); ctx.restore();
+}
+
+// Orden de dibujo: topológico entre objetos que se superponen en pantalla.
+function footprintFront(A, B) { // ¿A está delante de B?
+  if (A.z1 <= B.z0) return true; if (B.z1 <= A.z0) return false;
+  if (A.x1 <= B.x0) return CAM.x < (A.x1 + B.x0) / 2;
+  if (B.x1 <= A.x0) return CAM.x > (B.x1 + A.x0) / 2;
+  return A.d < B.d;
+}
+function sortedDrawables() {
+  const list = [];
+  const add = (fp, draw, sb) => list.push({ ...fp, draw, sb, d: proj((fp.x0 + fp.x1) / 2, 0, (fp.z0 + fp.z1) / 2).d });
+  const sbBox = (x0, x1, y1, z0, z1) => {
+    let a = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 };
+    for (const x of [x0, x1]) for (const y of [0, y1]) for (const z of [z0, z1]) { const q = P(x, y, z); a.x0 = Math.min(a.x0, q.x); a.x1 = Math.max(a.x1, q.x); a.y0 = Math.min(a.y0, q.y); a.y1 = Math.max(a.y1, q.y); }
+    return a;
+  };
+  for (let s = 0; s < 2; s++) for (let g = 0; g < NSEG; g++) {
+    const sh = SHELVES[s], z0 = SEG_Z0 + g * SEG_L, z1 = z0 + SEG_L;
+    add({ x0: sh.x0, x1: sh.x1, z0, z1 }, () => drawShelfSeg(s, g), sbBox(sh.x0, sh.x1, SHELF_H, z0, z1));
+  }
+  for (let i = 0; i < 3; i++) {
+    const L = (COUNTER.z1 - COUNTER.z0) / 3, z0 = COUNTER.z0 + i * L;
+    add({ x0: COUNTER.x0, x1: COUNTER.x1, z0, z1: z0 + L }, () => drawCounterSeg(i), sbBox(COUNTER.x0, COUNTER.x1, 1.5, z0, z0 + L));
+  }
+  add({ x0: ISLAND.x0, x1: ISLAND.x1, z0: ISLAND.z0, z1: ISLAND.z1 }, drawIsland, sbBox(ISLAND.x0, ISLAND.x1, 1.4, ISLAND.z0, ISLAND.z1));
+  add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
+  add({ x0: MANNEQUIN_POS.x - .25, x1: MANNEQUIN_POS.x + .25, z0: MANNEQUIN_POS.z - .2, z1: MANNEQUIN_POS.z + .2 }, drawMannequin, boxToSb(mannequinBox()));
+  for (const p of people) add({ x0: p.x - .22, x1: p.x + .22, z0: p.z - .18, z1: p.z + .18 }, () => drawPerson(p), boxToSb(personBox(p)));
+  // Kahn: arista B→A si B está detrás de A y se superponen en pantalla
+  const n = list.length, indeg = new Array(n).fill(0), out = list.map(() => []);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const a = list[i].sb, b = list[j].sb;
+    if (a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0) continue;
+    if (footprintFront(list[i], list[j])) { out[j].push(i); indeg[i]++; } else { out[i].push(j); indeg[j]++; }
+  }
+  const order = [], ready = [];
+  for (let i = 0; i < n; i++) if (!indeg[i]) ready.push(i);
+  const done = new Array(n).fill(false);
+  while (order.length < n) {
+    if (!ready.length) { // ciclo: tomar el más lejano pendiente
+      let k = -1; for (let i = 0; i < n; i++) if (!done[i] && (k < 0 || list[i].d > list[k].d)) k = i; ready.push(k);
+    }
+    ready.sort((a, b) => list[b].d - list[a].d);
+    const i = ready.shift(); if (done[i]) continue; done[i] = true; order.push(list[i]);
+    for (const j of out[i]) if (--indeg[j] === 0 && !done[j]) ready.push(j);
+  }
+  return order;
+}
+const boxToSb = b => ({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h });
+
+function drawTracks(time) {
+  ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.textBaseline = "alphabetic";
+  for (const p of people) {
+    if (!p.track) continue;
+    const b = personBox(p), tr = p.track;
+    let col = "#43e08a";
+    if (tr.type === "empleado") col = "#52c7ff";
+    if (tr.type === "ladron") col = (Math.floor(time * 4) % 2) ? "#ff5a52" : "#ff9a94";
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    if (!tr.type || !tr.gender) ctx.setLineDash([7, 4]); else ctx.setLineDash([]);
+    ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]);
+    const label = `ID ${String(tr.id).padStart(2, "0")} · ${tr.gender || "?"} · ${tr.type ? { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" }[tr.type] : "?"}`;
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = col; ctx.fillRect(b.x - 1, b.y - 18, tw, 17);
+    ctx.fillStyle = "#08100c"; ctx.fillText(label, b.x + 4, b.y - 5);
+  }
+}
+
+function drawHud(time) {
+  const cfg = levelCfg(game.level);
+  resetT();
+  // ruido y líneas
+  if (!scanPat) scanPat = ctx.createPattern(scan, "repeat");
+  ctx.fillStyle = scanPat; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = .9; ctx.drawImage(noise, -Math.random() * 256, -Math.random() * 256, W + 256 * 2, H + 256 * 2); ctx.globalAlpha = 1;
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .85); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.55)");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  // esquinas de visor
+  ctx.strokeStyle = "rgba(240,245,240,.85)"; ctx.lineWidth = 3;
+  const m = 26, l = 46;
+  for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) { ctx.beginPath(); ctx.moveTo(x, y + sy * l); ctx.lineTo(x, y); ctx.lineTo(x + sx * l, y); ctx.stroke(); }
+  ctx.strokeStyle = "rgba(240,245,240,.35)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(W / 2 - 12, H / 2); ctx.lineTo(W / 2 + 12, H / 2); ctx.moveTo(W / 2, H / 2 - 12); ctx.lineTo(W / 2, H / 2 + 12); ctx.stroke();
+  // REC
+  ctx.font = '600 22px "JetBrains Mono", monospace'; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  const recOn = game.state === "play" && !game.paused;
+  if (!recOn || Math.floor(time * 1.6) % 2) circ(52, 58, 8, recOn ? "#ff3b30" : "#9aa3a5");
+  ctx.fillStyle = "#f2f5f2"; ctx.fillText(recOn ? "REC" : game.state === "setup" ? "CALIBRANDO" : "STBY", 68, 59);
+  ctx.font = '400 13px "JetBrains Mono", monospace'; ctx.fillStyle = "rgba(242,245,242,.8)"; ctx.fillText("CAM-01 · SALÓN PRINCIPAL", 46, 86);
+  // señal y batería
+  for (let i = 0; i < 4; i++) { ctx.fillStyle = i < 3 || Math.floor(time) % 3 ? "#f2f5f2" : "rgba(242,245,242,.3)"; ctx.fillRect(W - 120 + i * 11, 66 - i * 6, 7, 8 + i * 6); }
+  ctx.strokeStyle = "#f2f5f2"; ctx.lineWidth = 2; ctx.strokeRect(W - 70, 52, 26, 14); ctx.fillStyle = "#f2f5f2"; ctx.fillRect(W - 44, 56, 3, 6); ctx.fillRect(W - 67, 55, 16, 8);
+  // fecha y hora
+  ctx.font = '400 15px "JetBrains Mono", monospace'; ctx.fillStyle = "#f2f5f2"; ctx.textAlign = "left";
+  ctx.fillText(`12/10/2026  ${fmtClock(cfg.start + game.t * 60)}`, 46, H - 52);
+  ctx.textAlign = "right"; ctx.fillStyle = "rgba(242,245,242,.75)"; ctx.font = '400 12px "JetBrains Mono", monospace';
+  ctx.fillText("640×480 · RE-ID ON · LEANVISION", W - 46, H - 52);
+  // modo
+  ctx.textAlign = "center"; ctx.font = '600 13px "JetBrains Mono", monospace';
+  const modeTxt = game.paused ? "‖ EN PAUSA" : game.mode === "zones" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : game.state === "play" ? "MODO DETECCIÓN" : "";
+  if (modeTxt) { const w = ctx.measureText(modeTxt).width + 20; ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(W / 2 - w / 2, 44, w, 24); ctx.fillStyle = game.mode === "zones" ? "#ffb547" : "#f2f5f2"; ctx.fillText(modeTxt, W / 2, 57); }
+  if (game.state === "setup") {
+    const msg = "Pintá las zonas sobre el piso · después tocá INICIAR TURNO";
+    ctx.font = '600 14px "JetBrains Mono", monospace'; const w = ctx.measureText(msg).width + 24;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(W / 2 - w / 2, H - 98, w, 28); ctx.fillStyle = "#ffb547"; ctx.fillText(msg, W / 2, H - 84);
+  }
+  ctx.textAlign = "left";
+}
+
+function render(time) {
+  resetT();
+  drawRoom(time);
+  drawZones();
+  if (game.heat) drawHeat();
+  for (const d of sortedDrawables()) d.draw();
+  // cartel CAJA colgante
+  for (const x of [7.5, 8.3]) { const a = P(x, 2.45, 4), b = P(x, STORE.h, 4); ctx.strokeStyle = "rgba(30,30,30,.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  poly(quad([7.35, 2.1, 4], [8.45, 2.1, 4], [8.45, 2.45, 4], [7.35, 2.45, 4]), "#203038", "#0d1417", 2);
+  planeText("CAJA", [7.9, 2.275, 3.99], [1, 0, 0], [0, -1, 0], 2.4, "#ffb547");
+  drawTracks(time);
+  // recuadro en curso
+  if (drag && !drag.zone) {
+    const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
+    ctx.fillStyle = "rgba(67,224,138,.12)"; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#43e08a"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
+  }
+  for (const f of flashes) { ctx.globalAlpha = 1 - f.t / .6; ctx.strokeStyle = f.color; ctx.lineWidth = 2.5; ctx.strokeRect(f.b.x, f.b.y, f.b.w, f.b.h); ctx.globalAlpha = 1; }
+  // textos flotantes
+  ctx.font = '700 15px "Chakra Petch", sans-serif'; ctx.textAlign = "center";
+  for (const f of floats) {
+    ctx.globalAlpha = clamp(1.8 - f.t, 0, 1); const y = f.y - f.t * 26;
+    ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText(f.txt, f.x, y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, y);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = "left";
+  // parpadeo de luz en hora pico
+  const cfg = levelCfg(game.level);
+  if (cfg.flicker && game.state === "play" && Math.sin(time * 1.3) > .985 - cfg.flicker * .02) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); }
+  drawHud(time);
+}
+
+// ───────────────────────── Panel lateral y HUD
+const $ = id => document.getElementById(id);
+function updateHud() {
+  const cfg = levelCfg(game.level), S = game.stats || freshStats();
+  $("hudLevel").textContent = `${game.level + 1} · ${cfg.name}`;
+  const rem = Math.max(0, Math.ceil(cfg.dur - game.t));
+  $("hudTime").textContent = `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, "0")}`;
+  $("hudScore").textContent = game.score.toLocaleString("es-AR");
+  if (game.score > game.best) { game.best = game.score; try { localStorage.setItem("lv-camara-best", String(game.best)); } catch (e) { } }
+  $("hudBest").textContent = game.best.toLocaleString("es-AR");
+  $("sIn").textContent = people.filter(p => p.x > 0 && p.z < STORE.d).length;
+  $("sDet").textContent = S.tp;
+  $("sMiss").textContent = S.missed;
+  $("sThief").textContent = `${S.caught} / ${S.thieves}`;
+  const att = S.tp + S.fp + S.mannequin;
+  $("sPrec").textContent = att ? Math.round(100 * S.tp / att) + "%" : "—";
+  $("sIou").textContent = S.ious.length ? (S.ious.reduce((a, b) => a + b, 0) / S.ious.length).toFixed(2) : "—";
+}
+function renderMissions() {
+  const ul = $("missions"); ul.innerHTML = "";
+  for (const m of MISSIONS) {
+    const v = missionIoU(m), L = LABELS[m.label];
+    const li = document.createElement("li");
+    li.innerHTML = `<i style="background:${L.color}"></i><span>${L.name}</span><b>${Math.round(v * 100)}%</b><small></small><div class="bar"><u style="width:${Math.round(v * 100)}%;background:${v >= .6 ? L.color : "var(--muted)"}"></u></div>`;
+    li.querySelector("small").textContent = m.hint;
+    ul.appendChild(li);
+  }
+}
+
+// ───────────────────────── Herramientas
+const chipsEl = $("chips");
+LABELS.forEach((L, i) => {
+  const b = document.createElement("button"); b.className = "chip"; b.innerHTML = `<i style="background:${L.color}"></i>${L.name}`;
+  b.setAttribute("aria-pressed", String(i === 0)); b.dataset.i = i;
+  b.onclick = () => { game.label = i; game.erase = false; syncTools(); };
+  chipsEl.appendChild(b);
+});
+function setMode(m) {
+  game.mode = m; if (m === "zones") closePopup(); syncTools();
+}
+function syncTools() {
+  const z = game.mode === "zones";
+  $("mDetect").setAttribute("aria-pressed", String(!z)); $("mZones").setAttribute("aria-pressed", String(z));
+  chipsEl.hidden = !z; $("tBrush").hidden = !z; $("tErase").hidden = !z;
+  chipsEl.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(!game.erase && +b.dataset.i === game.label)));
+  $("tErase").setAttribute("aria-pressed", String(game.erase));
+  $("tBrush").textContent = game.brush === 2 ? "Pincel 1 m" : "Pincel 0,5 m";
+  $("tBrush").setAttribute("aria-pressed", "false");
+  $("tHeat").setAttribute("aria-pressed", String(game.heat));
+  $("btnStart").hidden = game.state !== "setup";
+  $("btnPause").hidden = game.state !== "play";
+  $("btnPause").textContent = game.paused ? "Seguir" : "Pausa";
+  cv.classList.toggle("paint", z);
+}
+$("mDetect").onclick = () => { if (game.state === "setup") return; setMode("detect"); };
+$("mZones").onclick = () => setMode("zones");
+$("tBrush").onclick = () => { game.brush = game.brush === 2 ? 1 : 2; syncTools(); };
+$("tErase").onclick = () => { game.erase = !game.erase; syncTools(); };
+$("tHeat").onclick = () => { game.heat = !game.heat; syncTools(); };
+$("btnPause").onclick = () => { game.paused = !game.paused; syncTools(); };
+$("btnStart").onclick = () => startShift();
+$("btnIntro").onclick = () => { $("intro").hidden = true; enterSetup(); };
+
+function enterSetup() {
+  game.state = "setup"; game.paused = false; setupLevel(); game.brush = 2; setMode("zones");
+}
+function startShift() {
+  game.state = "play"; setMode("detect"); logEvent("Turno iniciado · REC", "", ""); syncTools();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("input,textarea")) return;
+  const k = e.key.toLowerCase();
+  if (popFor) {
+    if (k === "h") return chooseGender("H");
+    if (k === "m") return chooseGender("M");
+    if (k === "c") return chooseType("cliente");
+    if (k === "e") return chooseType("empleado");
+    if (k === "l") return chooseType("ladron");
+    if (k === "escape") return closePopup();
+  }
+  if (k === "z" && (game.state === "play" || game.state === "setup")) setMode(game.mode === "zones" && game.state === "play" ? "detect" : "zones");
+  if (k === "d" && game.state === "play") setMode("detect");
+  if (k === "p" && game.state === "play") { game.paused = !game.paused; syncTools(); }
+  if (game.mode === "zones" && k >= "1" && k <= "5") { game.label = +k - 1; game.erase = false; syncTools(); }
+});
+document.addEventListener("visibilitychange", () => { if (document.hidden && game.state === "play") { game.paused = true; syncTools(); } });
+window.addEventListener("resize", placePopup);
+
+// ───────────────────────── Reporte de fin de turno
+function showReport() {
+  const cfg = levelCfg(game.level), S = game.stats;
+  const att = S.tp + S.fp + S.mannequin;
+  const prec = att ? S.tp / att : 0, rec = S.spawned ? S.tp / S.spawned : 0;
+  const mIoU = S.ious.length ? S.ious.reduce((a, b) => a + b, 0) / S.ious.length : 0;
+  const gAcc = S.gTot ? S.gOK / S.gTot : 0;
+  const zoneIoUs = MISSIONS.map(missionIoU);
+  const zoneBonus = zoneIoUs.reduce((a, v) => a + Math.round(v * 60), 0);
+  scorePoints(zoneBonus, null);
+  const thiefRate = S.thieves ? S.caught / S.thieves : 1;
+  const comp = .3 * rec + .2 * prec + .15 * gAcc + .2 * thiefRate + .15 * (zoneIoUs.reduce((a, b) => a + b, 0) / zoneIoUs.length) - .08 * S.falseAcc;
+  const letter = comp >= .85 ? "A" : comp >= .7 ? "B" : comp >= .5 ? "C" : "D";
+  const verdict = { A: "Turno impecable. El dueño puede confiar en estos números.", B: "Buen turno. Se escaparon algunos datos.", C: "Datos flojos: hay tráfico que no quedó registrado.", D: "Con esta cámara el reporte no sirve. Probá de nuevo." }[letter];
+  const pct = v => Math.round(v * 100) + "%";
+  const zrows = LABELS.map(L => ({ L, z: S.zone[L.name] || { visits: 0, time: 0 } }));
+  const sinZona = S.zone["Sin zona"];
+  const body = $("reportBody");
+  body.innerHTML = `
+    <span class="eyebrow"><b>■</b> Fin del turno ${game.level + 1} · ${cfg.name} · ${fmtClock(cfg.start).slice(0, 5)}–${fmtClock(cfg.start + cfg.dur * 60).slice(0, 5)}</span>
+    <div class="grade"><span class="letter">${letter}</span><div><h2>${verdict}</h2><span class="pts">${game.levelScore.toLocaleString("es-AR")} pts en el turno · zonas +${zoneBonus}</span></div></div>
+    <div class="rgrid">
+      <div><span>Cobertura</span><strong>${pct(rec)}</strong></div>
+      <div><span>Precisión</span><strong>${pct(prec)}</strong></div>
+      <div><span>IoU medio</span><strong>${mIoU.toFixed(2)}</strong></div>
+      <div><span>Género</span><strong>${S.gTot ? pct(gAcc) : "—"}</strong></div>
+      <div><span>Ladrones</span><strong>${S.caught}/${S.thieves}</strong></div>
+      <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
+      <div><span>Sin detectar</span><strong>${S.missed}</strong></div>
+      <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
+    </div>
+    <div class="rsplit">
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+        <span class="eyebrow">Tráfico por zona (solo personas detectadas)</span>
+        <div style="overflow-x:auto"><table class="ztable"><thead><tr><th>Zona</th><th>Visitas</th><th>Perm. media</th><th>Calce</th></tr></thead><tbody>
+        ${zrows.map(({ L, z }, i) => `<tr><td><i style="background:${L.color}"></i>${L.name}</td><td>${z.visits}</td><td>${z.visits ? Math.round(z.time / z.visits) + " s" : "—"}</td><td>${pct(zoneIoUs[i])}</td></tr>`).join("")}
+        ${sinZona ? `<tr><td><i style="background:#555"></i>Sin zona</td><td>${sinZona.visits}</td><td>${sinZona.visits ? Math.round(sinZona.time / sinZona.visits) + " s" : "—"}</td><td>—</td></tr>` : ""}
+        </tbody></table></div>
+        <p class="note">Así lo vería el dueño en la app: visitas y permanencia por zona, igual que la columna <code>zonas_tiempo</code> de cada sesión. Si no detectaste a alguien, no aparece acá.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+        <span class="eyebrow">Plano · mapa de calor</span>
+        <canvas id="plan" width="300" height="360"></canvas>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btnNext">Siguiente turno</button>
+      <button class="ghost" id="btnRetry">Repetir turno</button>
+    </div>`;
+  drawPlan($("plan"));
+  $("report").hidden = false;
+  $("btnNext").onclick = () => { game.level++; $("report").hidden = true; saveHot(); enterSetup(); };
+  $("btnRetry").onclick = () => { game.score -= game.levelScore; $("report").hidden = true; enterSetup(); };
+  syncTools(); updateHud(); saveHot();
+}
+function drawPlan(c) {
+  const g = c.getContext("2d"), sx = c.width / STORE.w, sz = c.height / STORE.d;
+  const Y = z => c.height - z * sz; // el fondo del local arriba
+  g.fillStyle = "#1a2326"; g.fillRect(0, 0, c.width, c.height);
+  let max = 0; for (const v of game.heatGrid) max = Math.max(max, v);
+  for (let i = 0; i < zones.length; i++) { const z = zones[i]; if (z < 0) continue; const col = i % COLS, r = Math.floor(i / COLS); g.fillStyle = LABELS[z].color + "40"; g.fillRect(col * CELL * sx, Y((r + 1) * CELL), CELL * sx + .5, CELL * sz + .5); }
+  if (max) for (let i = 0; i < game.heatGrid.length; i++) {
+    const v = game.heatGrid[i] / max; if (v < .03) continue; const col = i % COLS, r = Math.floor(i / COLS);
+    g.fillStyle = `hsla(${220 - 220 * Math.pow(v, .6)},95%,55%,${.3 + .6 * v})`; g.fillRect(col * CELL * sx, Y((r + 1) * CELL), CELL * sx + .5, CELL * sz + .5);
+  }
+  g.strokeStyle = "#8d9e9a"; g.lineWidth = 1;
+  for (const s of SHELVES) g.strokeRect(s.x0 * sx, Y(SEG_Z0 + NSEG * SEG_L), (s.x1 - s.x0) * sx, NSEG * SEG_L * sz);
+  g.strokeRect(COUNTER.x0 * sx, Y(COUNTER.z1), (COUNTER.x1 - COUNTER.x0) * sx, (COUNTER.z1 - COUNTER.z0) * sz);
+  g.beginPath(); g.moveTo(RACK.x0 * sx, Y(RACK.z)); g.lineTo(RACK.x1 * sx, Y(RACK.z)); g.stroke();
+  g.strokeStyle = "#e3ebe8"; g.lineWidth = 2; g.strokeRect(1, 1, c.width - 2, c.height - 2);
+  g.strokeStyle = "#43e08a"; g.lineWidth = 4; g.beginPath(); g.moveTo(1, Y(3)); g.lineTo(1, Y(5)); g.stroke();
+  g.fillStyle = "#8d9e9a"; g.font = '11px "JetBrains Mono", monospace'; g.fillText("SALIDA", 6, Y(4) + 4); g.fillText("CAJA", COUNTER.x1 * sx + 4, Y(4) + 4);
+  g.fillText("10 m", c.width - 34, c.height - 6);
+}
+
+// ───────────────────────── Persistencia del visor (recarga en caliente)
+function saveHot() {
+  window.claude?.hot?.snapshot?.(() => ({ zones: Array.from(zones), level: game.level, score: game.score }));
+}
+function boot(data) {
+  if (data && Array.isArray(data.zones) && data.zones.length === zones.length) zones = Int8Array.from(data.zones);
+  if (data && Number.isFinite(data.level)) game.level = data.level;
+  if (data && Number.isFinite(data.score)) game.score = data.score;
+  // escena de fondo mientras se muestra la intro
+  game.stats = freshStats(); resetProducts(); spawnPerson("empleado", { cashier: true });
+  game.stats = freshStats();
+  renderMissions(); updateHud(); syncTools(); saveHot();
+  requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
+}
+window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+})();
+</script>
+</body>
+</html>
