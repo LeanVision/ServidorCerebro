@@ -3096,12 +3096,14 @@ function showReport(R) {
 // Pantalla final con la web y las redes de LeanVision. Los enlaces sin dirección no se muestran.
 const LV_LINKS = [
   { kind: "web", label: "Web", text: "leanvision.ai", href: "https://leanvision.ai" },
-  { kind: "instagram", label: "Instagram", text: "", href: "" },
-  { kind: "linkedin", label: "LinkedIn", text: "", href: "" },
+  { kind: "instagram", label: "Instagram", text: "@leanvisionai", href: "https://www.instagram.com/leanvisionai" },
+  { kind: "linkedin", label: "LinkedIn", text: "Lean Vision AI", href: "https://www.linkedin.com/company/lean-vision-ai/" },
+  { kind: "youtube", label: "YouTube", text: "@valuarconsulting9997", href: "https://www.youtube.com/@valuarconsulting9997" },
 ];
 const LINK_ICON = {
   web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.5 3.8 5.5 3.8 9s-1.2 6.5-3.8 9c-2.6-2.5-3.8-5.5-3.8-9S9.4 5.5 12 3z"/>',
   instagram: '<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor"/>',
+  youtube: '<rect x="2.5" y="5.5" width="19" height="13" rx="4"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/>',
   linkedin: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 10.5V16M8 7.6v.1M11.5 16v-3.2c0-1.4.9-2.3 2.1-2.3s2 .9 2 2.3V16M11.5 10.5V16"/>',
 };
 function showOutro() {
