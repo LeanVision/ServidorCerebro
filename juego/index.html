@@ -435,6 +435,16 @@ const W = 960, H = 720;
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 const cv = $("cv");
 cv.width = W * DPR; cv.height = H * DPR;
+// La pantalla grande se dibuja a la resolución real del monitor (hasta 2400 px de ancho), no a 960×720 fijo.
+let MAIN_SC = DPR;
+function fitCanvas() {
+  const r = cv.getBoundingClientRect(); if (!r.width) return;
+  const w = Math.min(2400, Math.max(W, Math.round(r.width * (window.devicePixelRatio || 1))));
+  if (w !== cv.width) { cv.width = w; cv.height = Math.round(w * H / W); }
+  MAIN_SC = cv.width / W;
+}
+if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(cv);
+window.addEventListener("resize", fitCanvas);
 const mainCtx = cv.getContext("2d");
 // ctx/SC/CAM apuntan a donde se está dibujando: la pantalla grande, una miniatura o la foto del rompecabezas.
 let ctx = mainCtx, SC = DPR;
@@ -447,7 +457,7 @@ const deg = Math.PI / 180;
 const lookAt = (c, tx, tz) => { c.yaw = Math.atan2(tx - c.x, tz - c.z); return c; };
 const CAMS = [
   { id: 1, name: "Salón principal", short: "Salón", room: "salon", x: 5.8, y: 3.35, z: -1.9, yaw: -10 * deg, pitch: 27 * deg, f: 540 },
-  lookAt({ id: 2, name: "Desde probadores", short: "Probadores", room: "salon", x: 2.0, y: 3.3, z: 11.7, pitch: 31 * deg, f: 470 }, 5.6, 3.0),
+  lookAt({ id: 2, name: "Pasillo y probadores", short: "Pasillo", room: "salon", x: 0.3, y: 3.3, z: -1.7, pitch: 22 * deg, f: 560 }, 4.6, 10.8),
   lookAt({ id: 3, name: "Depósito", short: "Depósito", room: "dep", x: 6.2, y: 3.1, z: 15.8, pitch: 33 * deg, f: 400 }, 9.2, 12.8),
 ];
 for (const c of CAMS) {
@@ -1433,7 +1443,7 @@ function drawFix(time, dt) {
 const camstrip = $("camstrip"), thumbs = [];
 CAMS.forEach((c, i) => {
   const b = document.createElement("button"); b.className = "cambtn"; b.type = "button";
-  b.innerHTML = `<canvas width="240" height="180"></canvas><div class="cl"><span>${camTag(c)}<b> · ${c.short}</b></span><em hidden></em></div>`;
+  b.innerHTML = `<canvas width="320" height="240"></canvas><div class="cl"><span>${camTag(c)}<b> · ${c.short}</b></span><em hidden></em></div>`;
   b.onclick = () => switchCam(i);
   camstrip.appendChild(b);
   thumbs.push({ btn: b, ctx: b.querySelector("canvas").getContext("2d"), badge: b.querySelector("em") });
@@ -1546,7 +1556,7 @@ const STATIC = Array.from({ length: 4 }, () => {
   g.putImageData(d, 0, 0); return c;
 });
 const scan = document.createElement("canvas"); scan.width = 4; scan.height = 4;
-{ const s = scan.getContext("2d"); s.fillStyle = "rgba(0,0,0,.18)"; s.fillRect(0, 0, 4, 1); }
+{ const s = scan.getContext("2d"); s.fillStyle = "rgba(0,0,0,.12)"; s.fillRect(0, 0, 4, 1); }
 
 function poly(pts, fill, stroke, lw = 1) {
   if (pts.length < 3) return;
@@ -2093,12 +2103,12 @@ function drawThumb(i) {
   const cam = CAMS[i], t = thumbs[i];
   if (cam.hacked) {
     t.ctx.setTransform(1, 0, 0, 1, 0, 0); t.ctx.imageSmoothingEnabled = false;
-    t.ctx.drawImage(pick(STATIC), 0, 0, 240, 180); t.ctx.imageSmoothingEnabled = true;
-    t.ctx.fillStyle = "rgba(120,0,0,.55)"; t.ctx.fillRect(0, 70, 240, 40);
-    t.ctx.fillStyle = "#fff"; t.ctx.font = '700 16px "Chakra Petch", sans-serif'; t.ctx.textAlign = "center"; t.ctx.fillText("SIN SEÑAL", 120, 96);
+    t.ctx.drawImage(pick(STATIC), 0, 0, 320, 240); t.ctx.imageSmoothingEnabled = true;
+    t.ctx.fillStyle = "rgba(120,0,0,.55)"; t.ctx.fillRect(0, 96, 320, 48);
+    t.ctx.fillStyle = "#fff"; t.ctx.font = '700 16px "Chakra Petch", sans-serif'; t.ctx.textAlign = "center"; t.ctx.fillText("SIN SEÑAL", 160, 126);
     return;
   }
-  renderView(t.ctx, cam, 240 / W, { tracks: true });
+  renderView(t.ctx, cam, 320 / W, { tracks: true });
   t.ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (game.state === "play" && Math.floor(nowT * 1.6) % 2) { t.ctx.fillStyle = "#ff3b30"; t.ctx.beginPath(); t.ctx.arc(12, 12, 4, 0, Math.PI * 2); t.ctx.fill(); }
 }
@@ -2126,7 +2136,10 @@ function drawGlitch(time) {
 function drawHud(time) {
   const cfg = levelCfg(game.level);
   resetT();
-  ctx.fillStyle = drawHud.pat || (drawHud.pat = ctx.createPattern(scan, "repeat")); ctx.fillRect(0, 0, W, H);
+  // líneas y ruido en píxeles reales, para que no se vean gruesos al subir la resolución
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = drawHud.pat || (drawHud.pat = ctx.createPattern(scan, "repeat")); ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  resetT();
   ctx.globalAlpha = .9; ctx.drawImage(noise, -Math.random() * 256, -Math.random() * 256, W + 512, H + 512); ctx.globalAlpha = 1;
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .85); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.55)");
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
@@ -2144,7 +2157,7 @@ function drawHud(time) {
   ctx.font = '400 15px "JetBrains Mono", monospace'; ctx.fillStyle = "#f2f5f2"; ctx.textAlign = "left";
   ctx.fillText(`12/10/2026  ${fmtClock(cfg.start + game.t * 60)}`, 46, H - 52);
   ctx.textAlign = "right"; ctx.fillStyle = "rgba(242,245,242,.75)"; ctx.font = '400 12px "JetBrains Mono", monospace';
-  ctx.fillText("640×480 · RE-ID ON · LEANVISION", W - 46, H - 52);
+  ctx.fillText("HD · RE-ID ON · LEANVISION", W - 46, H - 52);
   ctx.textAlign = "center"; ctx.font = '600 13px "JetBrains Mono", monospace';
   const modeTxt = game.paused ? "‖ EN PAUSA" : curCam.hacked ? "" : game.mode === "zones" ? (curCam.room === "salon" ? `MODO ZONAS · ${game.erase ? "BORRAR" : LABELS[game.label].name.toUpperCase()}` : "LAS ZONAS SE PINTAN EN EL SALÓN") : game.qte ? "● ARRESTO EN CURSO" : popFor ? "◉ ANALIZANDO · CÁMARA LENTA" : cops.some(c => c.mode === "chase") ? "POLICÍA EN CAMINO" : game.state === "play" ? "MODO DETECCIÓN" : "";
   if (modeTxt) { const w = ctx.measureText(modeTxt).width + 20; ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(W / 2 - w / 2, 44, w, 24); ctx.fillStyle = game.mode === "zones" ? "#ffb547" : "#f2f5f2"; ctx.fillText(modeTxt, W / 2, 57); }
@@ -2163,7 +2176,7 @@ function drawHud(time) {
 }
 
 function render(time) {
-  ctx = mainCtx; SC = DPR; CAM = curCam;
+  ctx = mainCtx; SC = MAIN_SC; CAM = curCam;
   drawScene({ tracks: !curCam.hacked });
   if (game.qte && inView(curCam, game.qte.s)) {
     const a = personBox(game.qte.s), b = personBox(game.qte.c);
