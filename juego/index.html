@@ -457,7 +457,7 @@ const deg = Math.PI / 180;
 const lookAt = (c, tx, tz) => { c.yaw = Math.atan2(tx - c.x, tz - c.z); return c; };
 const CAMS = [
   { id: 1, name: "Salón principal", short: "Salón", room: "salon", x: 5.8, y: 3.35, z: -1.9, yaw: -10 * deg, pitch: 27 * deg, f: 540 },
-  lookAt({ id: 2, name: "Pasillo del fondo", short: "Fondo", room: "salon", x: 9.8, y: 3.3, z: 6.2, pitch: 27 * deg, f: 430 }, 4.0, 11.6),
+  lookAt({ id: 2, name: "Pasillo del fondo", short: "Fondo", room: "salon", x: 0.25, y: 3.3, z: 9.6, pitch: 24 * deg, f: 380 }, 9.0, 11.8),
   lookAt({ id: 3, name: "Depósito", short: "Depósito", room: "dep", x: 6.2, y: 3.1, z: 15.8, pitch: 33 * deg, f: 400 }, 9.2, 12.8),
 ];
 for (const c of CAMS) {
@@ -1739,9 +1739,11 @@ function drawRack() {
   const z = RACK.z, y = 1.5;
   for (const x of [RACK.x0, RACK.x1]) line([x, 0, z], [x, y, z], "#3a3f42", 3);
   const cols = ["#3d5e8c", "#c47b3a", "#8c3a4a", "#d9c2a3", "#5f7f4f", "#2b2b2b", "#7a4f8c", "#b5835a"];
-  let i = 0;
-  for (let x = RACK.x0 + .1; x < RACK.x1 - .1; x += .14) poly(quad([x - .06, y - .05, z], [x + .06, y - .05, z], [x + .07, .62, z + .02], [x - .07, .62, z + .02]), cols[i++ % cols.length], "rgba(0,0,0,.25)");
+  // prendas colgadas en 3D: finitas a lo largo del caño y anchas hacia los costados, como en un perchero real
+  const xs = []; for (let x = RACK.x0 + .12; x < RACK.x1 - .1; x += .13) xs.push(x);
+  if (CAM.x > (RACK.x0 + RACK.x1) / 2) xs.reverse();
   line([RACK.x0, y, z], [RACK.x1, y, z], "#2a2e30", 3);
+  xs.forEach(x => { const c = cols[Math.round((x - RACK.x0) / .13) % cols.length]; drawBox(x - .04, x + .04, .6, y - .06, z - .22, z + .22, { front: c, side: shade(c, .82), top: shade(c, 1.05), edge: "rgba(0,0,0,.3)" }); });
 }
 function drawCajaSign() {
   for (const x of [7.5, 8.3]) line([x, 2.45, 4], [x, STORE.h, 4], "rgba(30,30,30,.7)", 1);
@@ -2036,7 +2038,7 @@ function sortedDrawables() {
       boxItem({ x0: COUNTER.x0, x1: COUNTER.x1, z0, z1: z0 + L }, 1.5, () => drawCounterSeg(i));
     }
     boxItem(ISLAND, 1.4, drawIsland);
-    add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
+    add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .22, z1: RACK.z + .22 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z - .22, RACK.z + .22));
     for (const m of mannequins) if (proj(m.x, 0, m.z).d > .35) add({ x0: m.x - .25, x1: m.x + .25, z0: m.z - .2, z1: m.z + .2 }, () => drawPerson(m, "same", true), boxToSb(personBox(m)));
   } else {
     boxItem(SERVER, SERVER.h, drawServer);
@@ -2437,7 +2439,7 @@ const INTRO = [
 const PRE = {
   1: [
     { who: "owner", text: "Al mediodía esto se llena. Y el depósito queda solo mientras repongo." },
-    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la que mira el pasillo del fondo con los probadores y la del depósito. Cambiá con las miniaturas o con las teclas 1, 2 y 3." },
+    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la del pasillo del fondo con los probadores y la del depósito. Cambiá con las miniaturas o con las teclas 1, 2 y 3." },
     { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID. Así no cuento dos veces a la misma persona." },
     { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido: sin señal no hay datos." },
     { who: "owner", text: "¿Hackers en mi local? ¡Lo que me faltaba!" },
