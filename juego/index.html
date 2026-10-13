@@ -457,7 +457,7 @@ const deg = Math.PI / 180;
 const lookAt = (c, tx, tz) => { c.yaw = Math.atan2(tx - c.x, tz - c.z); return c; };
 const CAMS = [
   { id: 1, name: "Salón principal", short: "Salón", room: "salon", x: 5.8, y: 3.35, z: -1.9, yaw: -10 * deg, pitch: 27 * deg, f: 540 },
-  lookAt({ id: 2, name: "Pasillo y probadores", short: "Pasillo", room: "salon", x: 0.3, y: 3.3, z: -1.7, pitch: 22 * deg, f: 560 }, 4.6, 10.8),
+  lookAt({ id: 2, name: "Pasillo del fondo", short: "Fondo", room: "salon", x: 9.8, y: 3.3, z: 6.2, pitch: 27 * deg, f: 430 }, 4.0, 11.6),
   lookAt({ id: 3, name: "Depósito", short: "Depósito", room: "dep", x: 6.2, y: 3.1, z: 15.8, pitch: 33 * deg, f: 400 }, 9.2, 12.8),
 ];
 for (const c of CAMS) {
@@ -550,7 +550,8 @@ const COUNTER = { x0: 7.5, x1: 8.3, z0: 2.6, z1: 5.4, h: 1.0 };
 const RACK = { x0: 6.6, x1: 8.6, z: 11.15 };
 const ISLAND = { x0: 3.4, x1: 5.2, z0: 1.0, z1: 1.9, h: .75 };
 const ISLAND_ITEMS = Array.from({ length: 10 }, (_, i) => ({ x: ISLAND.x0 + .12 + (i % 5) * .34, z: ISLAND.z0 + .15 + Math.floor(i / 5) * .38, c: PROD_COLORS[(i * 4) % PROD_COLORS.length] }));
-const MANNEQUIN_POS = { x: 2.4, z: 1.7 }; // en la vidriera, cerca de la entrada
+// Maniquíes: uno contra el vidrio de la vidriera (mirando a la calle) y otro junto al perchero, que es la trampa que ven las cámaras.
+const MANNEQUIN_SPOTS = [{ x: 1.6, z: -1.55, fx: 0, fz: -1, dress: "#2f4f6f" }, { x: 6.15, z: 11.55, fx: 0, fz: -1, dress: "#8c3a4a" }];
 // Depósito
 const PALLET = { x0: 7.3, x1: 8.4, z0: 13.6, z1: 14.7 };
 const SERVER = { x0: 6.1, x1: 6.75, z0: 12.5, z1: 13.15, h: 1.95 };
@@ -851,8 +852,8 @@ function iou(a, b) {
   const i = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
   return i / (a.w * a.h + b.w * b.h - i || 1);
 }
-const mannequin = { x: MANNEQUIN_POS.x, z: MANNEQUIN_POS.z, h: 1.78, look: { skin: "#e6e2da", hair: "#e6e2da", hairStyle: "none", shirt: "#e6e2da", pants: "#e6e2da", dress: "#2f4f6f", shoes: "#e6e2da" }, fx: 1, fz: 0, moving: false, headTurn: .6, phase: 0, anim: null, gender: "M" };
-const mannequinBox = () => personBox(mannequin);
+const mannequins = MANNEQUIN_SPOTS.map((m, i) => ({ id: 900 + i, x: m.x, z: m.z, h: 1.78, look: { skin: "#e6e2da", hair: "#e6e2da", hairStyle: "none", shirt: "#e6e2da", pants: "#e6e2da", dress: m.dress, shoes: "#e6e2da" }, fx: m.fx, fz: m.fz, moving: false, headTurn: .6, phase: 0, anim: null, gender: "M" }));
+const mannequinIoU = box => Math.max(0, ...mannequins.filter(m => inView(curCam, m)).map(m => iou(box, personBox(m))));
 
 // ───────────────────────── Estado del juego
 const game = {
@@ -1018,7 +1019,7 @@ function evaluateBox(box, t0) {
   }
   const cx = box.x + box.w / 2, cy = box.y;
   for (const c of cops) if (inView(curCam, c) && iou(box, personBox(c)) > .4) { floatAt(cx, cy - 8, "ES EL POLICÍA", "#7fa8ff"); return; }
-  const mIoU = curCam.room === "salon" ? iou(box, mannequinBox()) : 0;
+  const mIoU = curCam.room === "salon" ? mannequinIoU(box) : 0;
   if (mIoU > .3 && mIoU >= bestIoU) {
     S.mannequin++; scorePoints(-50, "penScore");
     floatAt(cx, cy - 8, "ES UN MANIQUÍ −50", "#ffb547"); logEvent("Marcaste el maniquí", "−50", "n");
@@ -2036,7 +2037,7 @@ function sortedDrawables() {
     }
     boxItem(ISLAND, 1.4, drawIsland);
     add({ x0: RACK.x0, x1: RACK.x1, z0: RACK.z - .05, z1: RACK.z + .05 }, drawRack, sbBox(RACK.x0, RACK.x1, 1.6, RACK.z, RACK.z));
-    add({ x0: MANNEQUIN_POS.x - .25, x1: MANNEQUIN_POS.x + .25, z0: MANNEQUIN_POS.z - .2, z1: MANNEQUIN_POS.z + .2 }, () => drawPerson(mannequin, "same", true), boxToSb(mannequinBox()));
+    for (const m of mannequins) if (proj(m.x, 0, m.z).d > .35) add({ x0: m.x - .25, x1: m.x + .25, z0: m.z - .2, z1: m.z + .2 }, () => drawPerson(m, "same", true), boxToSb(personBox(m)));
   } else {
     boxItem(SERVER, SERVER.h, drawServer);
     boxItem(PALLET, 1.0, drawPallet);
@@ -2436,7 +2437,7 @@ const INTRO = [
 const PRE = {
   1: [
     { who: "owner", text: "Al mediodía esto se llena. Y el depósito queda solo mientras repongo." },
-    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la que está arriba de los probadores y la del depósito. Cambiá con las miniaturas o con las teclas 1, 2 y 3." },
+    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la que mira el pasillo del fondo con los probadores y la del depósito. Cambiá con las miniaturas o con las teclas 1, 2 y 3." },
     { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID. Así no cuento dos veces a la misma persona." },
     { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido: sin señal no hay datos." },
     { who: "owner", text: "¿Hackers en mi local? ¡Lo que me faltaba!" },
