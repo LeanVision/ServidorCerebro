@@ -9,7 +9,7 @@
 <title>Cámara Lean Retail</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Pixelify+Sans:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
 /* Layout: consola de monitoreo — el monitor CCTV 4:3 manda a la izquierda, el panel del operador a la derecha; en celular se apilan. */
 :root{
@@ -28,6 +28,8 @@
   --f-display:"Chakra Petch","Bahnschrift","Arial Narrow",system-ui,sans-serif;
   --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --f-pixel:"Pixelify Sans","JetBrains Mono",ui-monospace,monospace;
+  --bar:#5d8f88;
   color-scheme:dark;
 }
 html,body{background:var(--bg);color:var(--fg)}
@@ -205,6 +207,71 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
   #fixCv{width:100%;height:auto}
 }
 .t-hack{color:var(--amber)}
+
+/* Historia: personajes en pixel art y cuadro de diálogo */
+.story{position:absolute;inset:0;z-index:10;background:#05090a;cursor:pointer;user-select:none}
+#storyCv{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block}
+.story .skip{position:absolute;top:12px;right:12px;z-index:2;background:rgba(5,9,10,.75);font-size:12px;padding:6px 10px}
+.dbox{position:absolute;left:3%;right:3%;bottom:4%;min-height:27%;background:rgba(7,11,13,.94);border:3px solid #e3ebe8;box-shadow:0 0 0 3px #0b1012,6px 6px 0 3px rgba(0,0,0,.5);padding:12px 16px 14px;display:flex;flex-direction:column;gap:6px}
+.dbox .who{font-family:var(--f-pixel);font-weight:600;font-size:clamp(14px,1.9vw,19px);letter-spacing:.02em}
+.dbox p{margin:0;font-family:var(--f-pixel);font-size:clamp(16px,2.3vw,24px);line-height:1.3;color:#f2f5f2;max-width:62ch;min-height:2.6em}
+.dbox .more{position:absolute;right:14px;bottom:8px;font-family:var(--f-pixel);font-size:13px;color:var(--muted);animation:blinkmore 1s steps(2) infinite}
+@keyframes blinkmore{50%{opacity:.2}}
+@media (max-width:700px){
+  .story{position:fixed;z-index:50;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:max(12px,env(safe-area-inset-top,0px)) 12px max(12px,env(safe-area-inset-bottom,0px))}
+  #storyCv{position:relative;inset:auto;width:100%;height:auto;aspect-ratio:4/3}
+  .dbox{position:relative;left:auto;right:auto;bottom:auto;min-height:0}
+}
+.coach{position:absolute;left:3%;bottom:15%;z-index:7;max-width:min(430px,62%);display:flex;align-items:flex-end;gap:8px;cursor:pointer}
+.coach canvas{width:52px;height:auto;aspect-ratio:40/44;image-rendering:pixelated;flex:none}
+.coach p{margin:0;background:rgba(7,11,13,.94);border:2px solid #43e08a;padding:8px 10px;font-family:var(--f-pixel);font-size:15px;line-height:1.3;color:#f2f5f2;display:flex;flex-direction:column;gap:2px}
+.coach b{font-weight:600;color:#43e08a;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+@media (max-width:560px){.coach{max-width:86%;bottom:16%}.coach p{font-size:13px}.coach canvas{width:40px}}
+
+/* Reporte con formato de app */
+.apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.apphead h2{font-size:clamp(22px,3vw,30px)!important;margin-top:2px!important}
+.apphead .live{font-family:var(--f-mono);font-size:11px;color:var(--det);border:1px solid var(--det);border-radius:999px;padding:2px 8px;letter-spacing:.06em}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.kpis div{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.kpis span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.kpis strong{font-family:var(--f-mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpis small{font-size:11.5px;color:var(--muted)}
+.appgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+@media (max-width:620px){.appgrid{grid-template-columns:minmax(0,1fr)}}
+.panel{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0;background:rgba(18,26,29,.7)}
+.panel.wide{grid-column:1/-1}
+.panel h3,.perf h3{margin:0;font-family:var(--f-display);font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.panel h3.sub{margin-top:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:#c9d4d0}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.chartbox{position:relative;overflow-x:auto}
+.chart{width:100%;min-width:300px;height:auto;display:block;max-height:240px}
+.chart .grid{stroke:#223033;stroke-width:1}
+.chart .axis{stroke:#4a5a5a;stroke-width:1}
+.chart .tick{fill:var(--muted);font:11px var(--f-mono)}
+.chart .val{fill:#e3ebe8;font:600 11px var(--f-mono)}
+.chart .hit{cursor:default}
+.chart .hit:hover{fill:rgba(255,255,255,.04)}
+.tip{position:absolute;pointer-events:none;background:#0b1012;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:12px var(--f-mono);color:var(--fg);white-space:nowrap;z-index:2}
+.hb{display:grid;grid-template-columns:96px minmax(0,1fr) 64px;align-items:center;gap:8px;font-size:12px}
+.hb span{color:#c9d4d0}
+.hb b{font-family:var(--f-mono);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.hbtrack{height:8px;border-radius:4px;background:#1c2729;overflow:hidden}
+.hbtrack i{display:block;height:100%;border-radius:0 4px 4px 0}
+.zrow{display:grid;grid-template-columns:10px 84px minmax(0,1fr);gap:4px 8px;align-items:start;font-size:12.5px}
+.zrow>i{width:10px;height:10px;border-radius:2px;margin-top:4px}
+.zrow .zbars{display:flex;flex-direction:column;gap:3px}
+.zrow .hb{grid-template-columns:84px minmax(0,1fr) 32px;font-size:11px}
+.zrow .hb span{color:var(--muted)}
+.feed.inc{max-height:200px}
+.fact{flex-direction:row;align-items:flex-start;gap:12px;border-color:#2f8f4e}
+.fact canvas{width:64px;height:auto;aspect-ratio:40/44;image-rendering:pixelated;flex:none}
+.fact div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.fact p{margin:0;font-size:13px;color:#d6e0dc}
+.perf{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.perf .letter{font-size:52px}
 </style>
 
 <div class="app">
@@ -266,11 +333,26 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
             <canvas id="fixCv" width="640" height="480" aria-label="Minijuego de reparación"></canvas>
           </div>
 
+          <div class="coach" id="coach" hidden role="status">
+            <canvas id="coachCv" width="40" height="44" aria-hidden="true"></canvas>
+            <p><b>Cerebro</b><span id="coachText"></span></p>
+          </div>
+
+          <div class="story" id="story" hidden>
+            <canvas id="storyCv" width="320" height="240" aria-hidden="true"></canvas>
+            <button class="ghost skip" id="storySkip">Saltar ▸▸</button>
+            <div class="dbox" aria-live="polite">
+              <span class="who" id="dWho">Sofía · dueña de Sofía Moda</span>
+              <p id="dText"></p>
+              <span class="more" id="dMore" hidden>▾ tocá o apretá espacio</span>
+            </div>
+          </div>
+
           <div class="overlay" id="intro">
             <div class="sheet">
               <span class="eyebrow"><b>●</b> REC · 3 cámaras · 4:3</span>
               <h2>Sos las cámaras del local.</h2>
-              <p>Durante el turno entran clientes, empleados y algún ladrón. Encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Tenés tres cámaras: el salón, la caja y el depósito. Antes de abrir, pintá las zonas del piso: lo que no detectás no aparece en tus datos.</p>
+              <p>Sofía tiene una tienda de ropa y no sabe qué pasa adentro. Leo, técnico de LeanVision, y el Cerebro, el robot que procesa las cámaras, le van a mostrar todo lo que se puede medir. Durante el turno entran clientes, empleados y algún ladrón: encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Lo que no detectás no aparece en los datos de Sofía.</p>
               <ol class="steps">
                 <li>Pintá las zonas del local sobre el piso.</li>
                 <li>Arrastrá un recuadro sobre cada persona que entra. Cambiá de cámara para ver todo.</li>
@@ -279,7 +361,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
                 <li>Desde el turno 2 te hackean cámaras: reparalas con un minijuego.</li>
               </ol>
               <p class="keys">Atajos: <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> o <kbd>V</kbd> cambiar cámara · <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>R</kbd> reparar · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto.</p>
-              <div class="actions"><button class="primary" id="btnIntro">Encender cámaras</button></div>
+              <div class="actions"><button class="primary" id="btnIntro">Empezar</button><button class="ghost" id="btnNoStory">Jugar sin historia</button></div>
             </div>
           </div>
 
@@ -715,7 +797,7 @@ function updatePerson(p, dt) {
         const avail = faceProducts(p).filter(x => x.present);
         if (avail.length) {
           const it = pick(avail); it.present = false; p.handItem = it.color;
-          if (T.mode === "hide") p.stolen++;
+          if (T.mode === "hide") { p.stolen++; if (!(p.track && p.track.type === "ladron")) coach("theft", "Bip: alguien agarró algo y no tiene canasto. Eso es sospechoso…", true); }
         }
       }
     }
@@ -756,7 +838,7 @@ const mannequinBox = () => personBox(mannequin);
 // ───────────────────────── Estado del juego
 const game = {
   state: "intro", level: 0, t: 0, score: 0, levelScore: 0, best: 0, mode: "detect", label: 0, brush: 1, erase: false, heat: false,
-  stats: null, spawnIn: 2, thiefTimes: [], restockTimes: [], hackTimes: [], hackN: 0, heatGrid: new Float32Array(COLS * ROWS), paused: false, qte: null,
+  stats: null, visits: [], events: null, spawnIn: 2, thiefTimes: [], restockTimes: [], hackTimes: [], hackN: 0, heatGrid: new Float32Array(COLS * ROWS), paused: false, qte: null,
 };
 try { game.best = +localStorage.getItem("lv-camara-best") || 0; } catch (e) { }
 function freshStats() {
@@ -770,6 +852,7 @@ function setupLevel() {
   for (const c of CAMS) c.hacked = null;
   closeFix();
   game.t = 0; game.levelScore = 0; game.stats = freshStats(); game.heatGrid.fill(0);
+  game.visits = []; game.events = [];
   game.spawnIn = 1.5;
   game.thiefTimes = Array.from({ length: cfg.thieves }, (_, i) => ({ t: 12 + (cfg.dur - 45) * (i + Math.random() * .8) / cfg.thieves, depot: Math.random() < cfg.depThief })).sort((a, b) => a.t - b.t);
   game.restockTimes = Array.from({ length: cfg.restock }, (_, i) => 8 + (cfg.dur - 50) * (i + Math.random() * .6) / cfg.restock);
@@ -792,6 +875,7 @@ function scorePoints(n, kind) {
 // Liquidación de una persona al salir (o al cerrar el turno).
 function settle(p, atEnd) {
   const S = game.stats;
+  game.visits.push({ born: p.born, left: game.t, tracked: !!p.track, role: p.role, bought: !!p.bag, g: p.track && p.track.gender, type: p.track && p.track.type });
   if (p.track) {
     for (const k in p.zoneTime) {
       const z = (S.zone[k] = S.zone[k] || { visits: 0, time: 0 });
@@ -801,6 +885,7 @@ function settle(p, atEnd) {
   if (p.cuffed) return; // ya se puntuó al esposarlo
   if (!p.track) {
     S.missed++; scorePoints(-40, "penScore");
+    if (!atEnd) coach("missed", "Se fue alguien sin detectar. Para Sofía, esa visita no existió.", true);
     floatAtDoor(p, "SE FUE SIN DETECTAR −40", "#ff5a52");
     logEvent(`Persona sin detectar`, "−40", "n");
     if (p.role === "ladron" && p.stolen) { S.robbed++; scorePoints(-150, "penScore"); floatAtDoor(p, "ROBO NO DETECTADO −150", "#ff5a52", 22); logEvent("Robo sin detectar", "−150", "n"); }
@@ -857,6 +942,7 @@ function logEvent(txt, pts, cls) {
   const li = document.createElement("li");
   li.innerHTML = `<span>${fmtClock(cfg.start + game.t * 60).slice(0, 5)}</span><em></em><span class="${cls}">${pts}</span>`;
   li.querySelector("em").textContent = txt;
+  if (game.events) game.events.push({ t: game.t, txt, pts, cls });
   if (feedEl.firstChild && feedEl.firstChild.textContent.includes("en espera")) feedEl.innerHTML = "";
   feedEl.prepend(li);
   while (feedEl.children.length > 40) feedEl.lastChild.remove();
@@ -936,6 +1022,7 @@ function evaluateBox(box, t0) {
   floatText(best, `${word} · IoU ${bestIoU.toFixed(2)} +${pts}`, "#43e08a");
   logEvent(`ID ${idStr(best)} detectado en ${camTag(curCam)}`, `+${pts}`, "p");
   openPopup(best);
+  coach("classify", "¡Bien! Ahora decime si es hombre o mujer y qué rol tiene. Con el teclado: H o M, y C, E o L.");
 }
 
 // ───────────────────────── Popup de clasificación
@@ -1047,6 +1134,7 @@ function callPolice(s) {
     wp: [], phase: 0, moving: false, fx: 1, fz: 0, headTurn: 0, anim: null, suspect: s, mode: "chase", repath: 0, stun: 0,
   });
   logEvent(`Policía en camino a ID ${idStr(s)}`, "", "");
+  coach("police", "La policía va en camino. Cuando lo alcance, apretá las flechas en el orden que aparecen.");
 }
 function copLeave(c) { c.mode = "leave"; c.suspect = null; c.speed = 1.3; c.wp = route(nearestPlace(c), { node: "OUT" }); }
 function thiefFlee(s, speed, msg) {
@@ -1136,6 +1224,7 @@ function startHack() {
   game.stats.hacks++;
   if (cam === curCam) { drag = null; closePopup(); }
   logEvent(`Intrusión en ${camTag(cam)}`, "", "n");
+  coach("hack", `¡Nos están hackeando la ${camTag(cam)}! Tocá REPARAR o su miniatura. Mientras tanto, seguí con las otras cámaras.`, true);
   syncHackUi();
 }
 const fixEl = $("fix"), fixCv = $("fixCv"), fctx = fixCv.getContext("2d");
@@ -1387,6 +1476,8 @@ function frame(now) {
   thumbTurn = (thumbTurn + 1) % (CAMS.length * 2);
   if (thumbTurn % 2 === 0) drawThumb(thumbTurn / 2);
   drawFix(nowT, dt);
+  drawStory(nowT, dt);
+  drawCoach(nowT);
   if (popFor) placePopup();
   uiTick -= dt; if (uiTick <= 0) { uiTick = .3; syncCamUi(); }
   requestAnimationFrame(frame);
@@ -1409,6 +1500,7 @@ function update(dt) {
     if (game.hackTimes.length && game.t >= game.hackTimes[0]) { game.hackTimes.shift(); startHack(); }
   }
   for (const c of CAMS) if (c.hacked) game.stats.downTime += dt;
+  if (curCam.room !== "dep" && people.some(p => !p.cashier && roomOf(p.x, p.z) === "dep")) coach("depot", "Hay movimiento en el depósito. Mirá la CAM-03 (tecla 3).");
   for (const p of people.slice()) updatePerson(p, dt);
   for (const c of cops.slice()) updateCop(c, dt);
   if (popFor && !people.includes(popFor)) closePopup();
@@ -1430,7 +1522,8 @@ function endShift() {
   closePopup(); closeFix();
   game.state = "report";
   updateHud();
-  showReport();
+  const R = computeReport();
+  playStory(debriefLines(R), () => showReport(R));
 }
 
 // ───────────────────────── Render
@@ -2046,18 +2139,26 @@ $("tErase").onclick = () => { game.erase = !game.erase; syncTools(); };
 $("tHeat").onclick = () => { game.heat = !game.heat; syncTools(); };
 $("btnPause").onclick = () => { game.paused = !game.paused; syncTools(); };
 $("btnStart").onclick = () => startShift();
-$("btnIntro").onclick = () => { $("intro").hidden = true; enterSetup(); };
+$("btnIntro").onclick = () => { $("intro").hidden = true; playStory(INTRO, enterSetup); };
+$("btnNoStory").onclick = () => { $("intro").hidden = true; enterSetup(); };
 
 function enterSetup() {
   game.state = "setup"; game.paused = false; setupLevel(); game.brush = 2; switchCam(0); setMode("zones");
+  coach("zones", "Pintá cada zona sobre el piso: elegí la etiqueta abajo y arrastrá. Los porcentajes de la derecha te dicen si vas bien.");
 }
 function startShift() {
   game.state = "play"; setMode("detect"); logEvent("Turno iniciado · REC", "", ""); syncTools();
+  coach("start", "Ya abrió el local. Encuadrá a cada persona: hacé clic y arrastrá desde la cabeza hasta los pies.");
 }
 
 document.addEventListener("keydown", e => {
   if (e.target.closest && e.target.closest("input,textarea")) return;
   const k = e.key.toLowerCase();
+  if (story) {
+    if (k === " " || k === "enter" || k === "arrowright") { e.preventDefault(); advanceStory(); }
+    else if (k === "escape") endStory();
+    return;
+  }
   if (game.qte) {
     const map = { arrowleft: "ArrowLeft", a: "ArrowLeft", arrowup: "ArrowUp", w: "ArrowUp", arrowright: "ArrowRight", d: "ArrowRight", arrowdown: "ArrowDown", s: "ArrowDown" };
     if (map[k]) { e.preventDefault(); if (!e.repeat) qteKey(map[k]); }
@@ -2084,9 +2185,203 @@ document.addEventListener("keydown", e => {
 document.addEventListener("visibilitychange", () => { if (document.hidden && game.state === "play") { game.paused = true; syncTools(); } });
 window.addEventListener("resize", placePopup);
 
-// ───────────────────────── Reporte de fin de turno
-function showReport() {
-  const cfg = levelCfg(game.level), S = game.stats;
+// ───────────────────────── Personajes en pixel art
+// Cada personaje se dibuja a 1 px = 1 "pixel" en un lienzo chico y se agranda sin suavizar.
+const sprCanvas = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function pxHead(g, skin) { px(g, 14, 6, 12, 1, skin); px(g, 13, 7, 14, 14, skin); px(g, 14, 21, 12, 1, skin); }
+function pxFace(g, o, mouth) {
+  if (o.blink) { px(g, 15, 14, 3, 1, "#2b1a12"); px(g, 22, 14, 3, 1, "#2b1a12"); }
+  else { px(g, 16, 13, 2, 2, "#2b1a12"); px(g, 22, 13, 2, 2, "#2b1a12"); px(g, 16, 13, 1, 1, "#ffffff"); px(g, 22, 13, 1, 1, "#ffffff"); }
+  if (o.talk) { px(g, 18, 18, 4, 2, "#5a1a1a"); px(g, 19, 19, 2, 1, "#d06060"); }
+  else px(g, 18, 18, 4, 1, mouth);
+}
+// Sofía, la dueña del local
+function drawOwner(g, o) {
+  g.clearRect(0, 0, 40, 64);
+  const skin = "#f0c39b", hair = "#4a2a1a", card = "#b8433a", cardD = "#8f3029", top = "#f2efe8", pants = "#2c3644", shoe = "#1b1b1b";
+  px(g, 11, 6, 18, 26, hair);
+  pxHead(g, skin);
+  px(g, 12, 4, 16, 4, hair); px(g, 12, 7, 3, 9, hair); px(g, 25, 7, 3, 9, hair); px(g, 15, 7, 7, 2, hair);
+  pxFace(g, o, "#8a3a2a");
+  px(g, 15, 12, 4, 1, "#3b3b3b"); px(g, 21, 12, 4, 1, "#3b3b3b"); px(g, 19, 13, 2, 1, "#3b3b3b");
+  px(g, 15, 17, 2, 1, "#e8a090"); px(g, 23, 17, 2, 1, "#e8a090");
+  px(g, 12, 15, 1, 2, "#ffd23f"); px(g, 27, 15, 1, 2, "#ffd23f");
+  px(g, 18, 22, 4, 2, skin);
+  px(g, 13, 24, 14, 17, top);
+  px(g, 10, 24, 6, 18, card); px(g, 24, 24, 6, 18, card); px(g, 10, 24, 20, 2, card);
+  px(g, 15, 26, 1, 15, cardD); px(g, 24, 26, 1, 15, cardD);
+  px(g, 7, 25, 3, 14, card); px(g, 30, 25, 3, 14, card);
+  px(g, 7, 39, 3, 3, skin); px(g, 30, 39, 3, 3, skin);
+  px(g, 26, 29, 3, 2, "#ffd23f");
+  px(g, 13, 42, 6, 17, pants); px(g, 21, 42, 6, 17, pants);
+  px(g, 12, 59, 7, 3, shoe); px(g, 21, 59, 7, 3, shoe);
+}
+// Leo, el técnico de LeanVision (chomba con el logo del ojo)
+const BRAND = { polo: "#1fa39a", poloD: "#178a82" };
+function drawTech(g, o) {
+  g.clearRect(0, 0, 40, 64);
+  const skin = "#c68b62", hair = "#1d1714", collar = "#f2f5f2", pants = "#2f4f6f", shoe = "#e3e6e2";
+  pxHead(g, skin);
+  px(g, 12, 13, 1, 3, skin); px(g, 27, 13, 1, 3, skin);
+  px(g, 13, 4, 14, 4, hair); px(g, 12, 6, 2, 6, hair); px(g, 26, 6, 2, 5, hair); px(g, 14, 7, 6, 2, hair);
+  px(g, 15, 11, 3, 1, hair); px(g, 22, 11, 3, 1, hair);
+  pxFace(g, o, "#6a2a1a");
+  px(g, 18, 22, 4, 2, skin);
+  px(g, 10, 24, 20, 17, BRAND.polo);
+  px(g, 16, 23, 3, 3, collar); px(g, 21, 23, 3, 3, collar); px(g, 19, 24, 2, 1, skin);
+  px(g, 19, 25, 2, 6, BRAND.poloD); px(g, 19, 26, 1, 1, collar); px(g, 19, 29, 1, 1, collar);
+  px(g, 12, 28, 5, 3, "#f2f5f2"); px(g, 13, 29, 3, 1, "#0b1012"); px(g, 14, 29, 1, 1, "#ffb547");
+  px(g, 7, 24, 3, 8, BRAND.polo); px(g, 30, 24, 3, 8, BRAND.polo);
+  px(g, 7, 32, 3, 7, skin); px(g, 30, 32, 3, 7, skin);
+  px(g, 27, 33, 8, 10, "#2a2e30"); px(g, 28, 34, 6, 8, "#52c7ff");
+  px(g, 29, 39, 1, 2, "#ffffff"); px(g, 31, 37, 1, 4, "#ffffff"); px(g, 33, 35, 1, 6, "#ffffff");
+  px(g, 30, 41, 3, 2, skin);
+  px(g, 7, 39, 3, 3, skin);
+  px(g, 12, 41, 16, 1, "#1b1b1b");
+  px(g, 13, 42, 6, 17, pants); px(g, 21, 42, 6, 17, pants);
+  px(g, 12, 59, 7, 3, shoe); px(g, 21, 59, 7, 3, shoe); px(g, 12, 61, 7, 1, BRAND.polo); px(g, 21, 61, 7, 1, BRAND.polo);
+}
+// El Cerebro hecho robot: pantalla de cara y cuerpo de placa verde
+function drawBot(g, o, t) {
+  g.clearRect(0, 0, 40, 44);
+  const shell = "#e3e6e2", shellD = "#aab2b0", eye = o.alert ? "#ff5a52" : "#43e08a";
+  px(g, 19, 3, 2, 5, "#9aa3a5"); px(g, 18, 0, 4, 3, Math.floor(t * 2) % 2 ? "#ff3b30" : "#7a1a14");
+  px(g, 9, 8, 22, 18, shell); px(g, 8, 9, 24, 16, shell); px(g, 9, 25, 22, 1, shellD); px(g, 31, 9, 1, 16, shellD);
+  px(g, 11, 11, 18, 12, "#0b1416");
+  if (o.blink) { px(g, 14, 16, 4, 1, eye); px(g, 22, 16, 4, 1, eye); }
+  else { px(g, 14, 13, 4, 5, eye); px(g, 22, 13, 4, 5, eye); px(g, 15, 14, 1, 1, "#c8ffe0"); px(g, 23, 14, 1, 1, "#c8ffe0"); }
+  if (o.talk) px(g, 17, 20, 6, 2, eye); else px(g, 18, 20, 4, 1, eye);
+  px(g, 5, 13, 3, 6, "#9aa3a5"); px(g, 32, 13, 3, 6, "#9aa3a5");
+  px(g, 12, 27, 16, 10, "#2f8f4e"); px(g, 12, 27, 16, 1, "#3fae62"); px(g, 17, 30, 6, 4, "#1b1b1b");
+  for (let i = 0; i < 5; i++) px(g, 13 + i * 3, 35, 1, 1, "#d8b46a");
+  px(g, 13, 28, 2, 1, "#d8b46a"); px(g, 25, 28, 2, 1, "#d8b46a");
+  const fl = Math.floor(t * 10) % 2; px(g, 16, 38, 8, 2, fl ? "#52c7ff" : "#9ee6ff"); px(g, 18, 40, 4, 2 + fl, "#52c7ff");
+}
+const SPR = { owner: sprCanvas(40, 64), tech: sprCanvas(40, 64), bot: sprCanvas(40, 44) };
+const DRAW = { owner: drawOwner, tech: drawTech, bot: drawBot };
+
+// ───────────────────────── Diálogos
+const SPEAKERS = {
+  owner: { name: "Sofía · dueña de Sofía Moda", color: "#ffb547" },
+  tech: { name: "Leo · técnico de LeanVision", color: "#2fd0c0" },
+  bot: { name: "Cerebro · el robot de LeanVision", color: "#43e08a" },
+};
+const INTRO = [
+  { who: "owner", text: "Hola, soy Sofía. Hace ocho años que tengo este local de ropa." },
+  { who: "owner", text: "Entra un montón de gente, pero no sé cuánta, qué mira ni por qué muchos se van sin comprar." },
+  { who: "tech", text: "¡Hola, Sofía! Soy Leo, de LeanVision. Justamente para eso venimos." },
+  { who: "tech", text: "Con las cámaras de seguridad que ya tenés podemos medir todo eso, sin cambiar nada del local." },
+  { who: "owner", text: "¿Las cámaras? Si solo graban y nadie mira las grabaciones…" },
+  { who: "bot", text: "Bip bup. Ahora alguien las mira: yo. Soy el Cerebro, una computadora chiquita que vive acá, en tu local." },
+  { who: "tech", text: "El Cerebro encuadra a cada persona con un recuadro y la sigue mientras recorre el local." },
+  { who: "tech", text: "Vos marcás las zonas: entrada, góndolas, caja, probadores. Así sabés cuánta gente pasa por cada una y cuánto se queda." },
+  { who: "owner", text: "¿Y todo eso dónde lo veo?" },
+  { who: "tech", text: "En la app de LeanVision: visitas, permanencia por zona y un mapa de calor de tu local." },
+  { who: "owner", text: "¿Y si alguien me roba?" },
+  { who: "tech", text: "Si ves a alguien sospechoso lo marcás como ladrón y llamamos a la policía. Pero ojo: acusar a un cliente inocente sale caro." },
+  { who: "bot", text: "Hoy el Cerebro sos vos. Primero pintá las zonas en el piso. Después encuadrá a cada persona que entre. ¡A calibrar!" },
+];
+const PRE = {
+  1: [
+    { who: "owner", text: "Al mediodía esto se llena. Y el depósito queda solo mientras repongo." },
+    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la caja y el depósito. Cambiá entre ellas con las miniaturas o las teclas 1, 2 y 3." },
+    { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID." },
+    { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido." },
+    { who: "owner", text: "¿Hackers en mi local? ¡Lo que me faltaba!" },
+  ],
+  2: [
+    { who: "owner", text: "Llegó la hora pico. Es cuando más vendo… y cuando más me roban." },
+    { who: "tech", text: "Hay más gente y algunos ladrones ya no usan capucha. Fijate en lo que hacen, no solo en cómo se visten." },
+    { who: "bot", text: "Y si se corta internet, tranqui: guardo cada visita en mi disco y la mando cuando vuelve la conexión." },
+  ],
+};
+const PRE_ENDLESS = [
+  { who: "owner", text: "¡Arranca la liquidación! Se viene una avalancha de gente." },
+  { who: "tech", text: "Mismo trabajo, más gente y más intentos de hackeo. Vos podés." },
+];
+// Cómo lo hace el Cerebro de verdad (sacado del código de ServidorCerebro)
+const FACTS = [
+  "En un local real nadie dibuja recuadros: cada cámara detecta a las personas y me manda los recortes. Yo calculo dónde está cada una en el plano y sumo sus segundos en cada zona, sobre una grilla de 50 cm.",
+  "Para reconocer a alguien entre cámaras uso una red neuronal llamada OSNet: saca una huella de la ropa y la silueta. Me acuerdo de cada persona 30 minutos, por si sale y vuelve.",
+  "Cada visita la guardo primero en mi disco y después la mando a la nube. Si se corta internet no se pierde nada. Y cada 15 minutos saco una foto del mapa de calor para comparar horarios.",
+  "La edad y el género los estimo con un modelo de caras (InsightFace) recién cuando termina la visita, para no frenar el seguimiento en vivo.",
+];
+const storyEl = $("story"), scv = $("storyCv"), sg = scv.getContext("2d");
+const storyBgCv = sprCanvas(160, 120);
+let story = null;
+function playStory(lines, onDone) {
+  renderView(storyBgCv.getContext("2d"), CAMS[0], 160 / W, { tracks: false });
+  story = { lines: lines.filter(Boolean), i: 0, chars: 0, shown: -1, onDone };
+  closePopup(); closeFix(); $("coach").hidden = true;
+  game.state = "story"; storyEl.hidden = false; syncTools();
+  showLine();
+}
+function showLine() {
+  const L = story.lines[story.i], S = SPEAKERS[L.who];
+  story.chars = 0; story.shown = -1;
+  $("dWho").textContent = S.name; $("dWho").style.color = S.color;
+  $("dMore").hidden = true;
+}
+function advanceStory() {
+  if (!story) return;
+  const L = story.lines[story.i];
+  if (story.chars < L.text.length) { story.chars = L.text.length; return; }
+  story.i++;
+  if (story.i >= story.lines.length) endStory(); else showLine();
+}
+function endStory() {
+  if (!story) return;
+  const cb = story.onDone; story = null; storyEl.hidden = true;
+  if (cb) cb();
+}
+storyEl.addEventListener("click", e => { if (e.target.closest("#storySkip")) return; advanceStory(); });
+$("storySkip").onclick = endStory;
+
+function drawStory(time, dt) {
+  if (!story) return;
+  const L = story.lines[story.i];
+  story.chars = Math.min(L.text.length, story.chars + dt * 48);
+  const n = Math.floor(story.chars);
+  if (n !== story.shown) { story.shown = n; $("dText").textContent = L.text.slice(0, n); $("dMore").hidden = n < L.text.length; }
+  const typing = n < L.text.length;
+  sg.setTransform(1, 0, 0, 1, 0, 0); sg.imageSmoothingEnabled = false;
+  sg.drawImage(storyBgCv, 0, 0, 320, 240);
+  sg.fillStyle = "rgba(8,12,14,.5)"; sg.fillRect(0, 0, 320, 240);
+  const blinkAt = k => (time * .9 + k * .37) % 4 < .12;
+  const place = { owner: [28, 30, 2], tech: [212, 30, 2], bot: [122, 14, 2] };
+  for (const who of ["owner", "tech", "bot"]) {
+    const g = SPR[who].getContext("2d"), speaking = L.who === who;
+    const o = { blink: blinkAt(who.length), talk: speaking && typing && Math.floor(time * 9) % 2 === 0 };
+    DRAW[who](g, o, time);
+    if (!speaking) { g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(8,12,14,.45)"; g.fillRect(0, 0, 40, 64); g.globalCompositeOperation = "source-over"; }
+    const [x, y, s] = place[who];
+    const bob = who === "bot" ? Math.round(Math.sin(time * 2.2) * 2) : speaking && typing ? -Math.round(Math.abs(Math.sin(time * 9))) : Math.round(Math.sin(time * 1.6 + x) * .6);
+    if (who !== "bot") { sg.fillStyle = "rgba(0,0,0,.4)"; sg.fillRect(x + 18, y + 122, 44, 4); }
+    sg.drawImage(SPR[who], x, y + bob, SPR[who].width * s, SPR[who].height * s);
+  }
+}
+
+// ───────────────────────── Consejos del robot durante el juego
+const coachSeen = new Set(), coachCv = $("coachCv"), coachG = coachCv.getContext("2d");
+let coachTimer = null, coachAlert = false;
+function coach(key, text, alert = false) {
+  if (coachSeen.has(key) || story) return;
+  coachSeen.add(key); coachAlert = alert;
+  $("coachText").textContent = text; $("coach").hidden = false;
+  clearTimeout(coachTimer); coachTimer = setTimeout(() => { $("coach").hidden = true; }, 7500);
+}
+$("coach").addEventListener("click", () => { $("coach").hidden = true; });
+function drawCoach(time) {
+  if ($("coach").hidden) return;
+  drawBot(coachG, { talk: Math.floor(time * 6) % 2 === 0, blink: time % 3 < .1, alert: coachAlert }, time);
+}
+
+// ───────────────────────── Reporte de cierre: así lo vería Sofía en la app
+const pl = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+function computeReport() {
+  const cfg = levelCfg(game.level), S = game.stats, V = game.visits;
+  const det = V.filter(v => v.tracked);
   const att = S.tp + S.fp + S.mannequin;
   const prec = att ? S.tp / att : 0, rec = S.spawned ? S.tp / S.spawned : 0;
   const mIoU = S.ious.length ? S.ious.reduce((a, b) => a + b, 0) / S.ious.length : 0;
@@ -2096,48 +2391,151 @@ function showReport() {
   scorePoints(zoneBonus, null);
   const thiefRate = S.thieves ? S.caught / S.thieves : 1;
   const comp = .3 * rec + .2 * prec + .15 * gAcc + .2 * thiefRate + .15 * (zoneIoUs.reduce((a, b) => a + b, 0) / zoneIoUs.length) - .08 * S.falseAcc - .05 * (S.hacks - S.repaired);
-  const letter = comp >= .85 ? "A" : comp >= .7 ? "B" : comp >= .5 ? "C" : "D";
-  const verdict = { A: "Turno impecable. El dueño puede confiar en estos números.", B: "Buen turno. Se escaparon algunos datos.", C: "Datos flojos: hay tráfico que no quedó registrado.", D: "Con estas cámaras el reporte no sirve. Probá de nuevo." }[letter];
-  const pct = v => Math.round(v * 100) + "%";
-  const zrows = LABELS.map(L => ({ L, z: S.zone[L.name] || { visits: 0, time: 0 } }));
-  const sinZona = S.zone["Sin zona"];
+  let letter = comp >= .85 ? "A" : comp >= .7 ? "B" : comp >= .5 ? "C" : "D";
+  const clientsDet = det.filter(v => v.role === "cliente"), bought = clientsDet.filter(v => v.bought).length;
+  const dwell = det.length ? det.reduce((a, v) => a + (v.left - v.born), 0) / det.length : 0;
+  // tráfico por franja: 6 franjas del turno; 1 s de juego = 1 min de reloj
+  const bw = Math.ceil(cfg.dur / 6 / 5) * 5, nB = Math.ceil(cfg.dur / bw); // franjas redondas de 15, 20 o 25 min
+  const buckets = Array.from({ length: nB }, (_, i) => ({ from: cfg.start + i * bw * 60, det: 0, miss: 0 }));
+  for (const v of V) { const b = buckets[Math.min(nB - 1, Math.floor(v.born / bw))]; if (v.tracked) b.det++; else b.miss++; }
+  const zonesData = LABELS.map((L, i) => { const z = S.zone[L.name] || { visits: 0, time: 0 }; return { name: L.name, color: L.color, visits: z.visits, avg: z.visits ? z.time / z.visits : 0, iou: zoneIoUs[i] }; });
+  const anyZones = zones.some(z => z >= 0);
+  if (!anyZones && letter === "A") letter = "B"; // sin zonas el reporte queda incompleto
+  const withVisits = zonesData.filter(z => z.visits);
+  const topZone = withVisits.slice().sort((a, b) => b.visits - a.visits)[0];
+  const longZone = withVisits.slice().sort((a, b) => b.avg - a.avg)[0];
+  const gH = det.filter(v => v.g === "H").length, gM = det.filter(v => v.g === "M").length;
+  const types = { cliente: det.filter(v => v.type === "cliente").length, empleado: det.filter(v => v.type === "empleado").length, ladron: det.filter(v => v.type === "ladron").length };
+  const incidents = game.events.filter(e => /ladr|esposad|escap|robo|intrusi|restaurada|inocente|solt/i.test(e.txt));
+  return { cfg, S, letter, prec, rec, mIoU, gAcc, zoneIoUs, zoneBonus, entered: V.length, det: det.length, clientsDet: clientsDet.length, bought, conv: clientsDet.length ? bought / clientsDet.length : null, dwell, buckets, zonesData, anyZones, topZone, longZone, gH, gM, types, incidents, fact: FACTS[Math.min(game.level, FACTS.length - 1)] };
+}
+function debriefLines(R) {
+  const S = R.S, L = [];
+  L.push({ who: "owner", text: { A: "¡No lo puedo creer! Ahora sé exactamente qué pasa en mi local.", B: "Esto ya me sirve un montón. Nunca había tenido estos números.", C: "Hay datos, pero siento que me faltan pedazos.", D: "Mmm… con esto no sé si puedo decidir algo." }[R.letter] });
+  if (!R.anyZones) L.push({ who: "tech", text: "No marcaste zonas, así que Sofía no sabe qué sector funciona mejor. Las zonas convierten las detecciones en decisiones." });
+  else if (R.topZone) L.push({ who: "tech", text: `La zona con más visitas fue ${R.topZone.name}, con ${pl(R.topZone.visits, "visita", "visitas")}. Donde más se quedó la gente fue ${R.longZone.name}: ${Math.round(R.longZone.avg)} minutos en promedio.` });
+  if (R.clientsDet) L.push({ who: "tech", text: `De ${pl(R.clientsDet, "cliente que registraste", "clientes que registraste")}, ${R.bought} ${R.bought === 1 ? "compró" : "compraron"}: ${Math.round(R.conv * 100)}% de conversión. Con ese número podés medir si una vidriera o una promo funcionan.` });
+  if (S.missed) {
+    L.push({ who: "owner", text: `¿Y ${S.missed === 1 ? "la persona que no detectaste" : `las ${S.missed} personas que no detectaste`}?` });
+    L.push({ who: "tech", text: "Para la app no existieron. Los datos son tan buenos como lo que ve la cámara: por eso la detección tiene que ser precisa." });
+  } else L.push({ who: "tech", text: "No se te escapó nadie: estos números son confiables." });
+  if (S.thieves) L.push({ who: "owner", text: S.caught === S.thieves ? "¡Y no se escapó ni un ladrón!" : S.caught ? `Agarramos ${S.caught} de ${S.thieves} ladrones. Algo es algo.` : "Los ladrones se fueron todos… qué bronca." });
+  if (S.falseAcc) L.push({ who: "tech", text: `Ojo con las acusaciones: ${pl(S.falseAcc, "cliente inocente terminó", "clientes inocentes terminaron")} revisado por la policía. Eso espanta clientes.` });
+  if (S.hacks) L.push({ who: "bot", text: S.repaired === S.hacks ? "Y repararon todas las cámaras hackeadas. Bip, gracias." : "Quedaron cámaras hackeadas sin reparar: mientras no hay señal, no hay datos." });
+  L.push({ who: "bot", text: R.fact });
+  L.push({ who: "tech", text: "Mirá, así te llega todo esto en la app de LeanVision:" });
+  return L;
+}
+// Gráfico de tráfico: barras apiladas detectadas / sin detectar, con tooltip
+const C_DET = "#2fae6b", C_MISS = "#8a6fd1";
+function trafficSvg(B, w) {
+  const h = 200, m = { l: 30, r: 8, t: 22, b: 26 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const max = Math.max(1, ...B.map(b => b.det + b.miss)), step = max <= 5 ? 1 : max <= 10 ? 2 : 5, top = Math.ceil(max / step) * step;
+  const y = v => m.t + ph - v / top * ph, cw = pw / B.length, bwid = Math.min(34, cw * .56);
+  const roundTop = (x, y0, wd, hh) => { const r = Math.min(4, hh, wd / 2); return `M${x},${y0 + hh}V${y0 + r}Q${x},${y0} ${x + r},${y0}H${x + wd - r}Q${x + wd},${y0} ${x + wd},${y0 + r}V${y0 + hh}Z`; };
+  let s = `<svg viewBox="0 0 ${w} ${h}" class="chart" role="img" aria-label="Personas que entraron por franja horaria, detectadas y sin detectar">`;
+  for (let v = 0; v <= top; v += step) s += `<line x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${m.l - 6}" y="${y(v) + 4}" class="tick" text-anchor="end">${v}</text>`;
+  B.forEach((b, i) => {
+    const cx = m.l + cw * i + cw / 2, x = cx - bwid / 2, tot = b.det + b.miss;
+    const hd = b.det / top * ph, hm = b.miss / top * ph;
+    if (b.det) s += b.miss ? `<rect x="${x}" y="${y(b.det)}" width="${bwid}" height="${hd}" fill="${C_DET}"/>` : `<path d="${roundTop(x, y(b.det), bwid, hd)}" fill="${C_DET}"/>`;
+    if (b.miss) s += `<path d="${roundTop(x, y(tot), bwid, Math.max(0, hm - (b.det ? 2 : 0)))}" fill="${C_MISS}"/>`;
+    if (tot) s += `<text x="${cx}" y="${y(tot) - 6}" class="val" text-anchor="middle">${tot}</text>`;
+    s += `<text x="${cx}" y="${h - 8}" class="tick" text-anchor="middle">${fmtClock(b.from).slice(0, 5)}</text>`;
+    s += `<rect x="${m.l + cw * i}" y="${m.t}" width="${cw}" height="${ph}" fill="transparent" class="hit" data-tip="${fmtClock(b.from).slice(0, 5)} · ${pl(tot, "persona entró", "personas entraron")} · ${b.det} ${b.det === 1 ? "detectada" : "detectadas"} · ${b.miss} sin detectar"/>`;
+  });
+  s += `<line x1="${m.l}" x2="${w - m.r}" y1="${y(0)}" y2="${y(0)}" class="axis"/></svg>`;
+  return s;
+}
+function hbar(label, value, max, text, color) {
+  return `<div class="hb"><span>${label}</span><div class="hbtrack"><i style="width:${max ? Math.max(2, value / max * 100) : 0}%;background:${color || "var(--bar)"}"></i></div><b>${text}</b></div>`;
+}
+function showReport(R) {
+  const { cfg, S } = R, pct = v => Math.round(v * 100) + "%";
+  game.state = "report";
+  const zmax = Math.max(1, ...R.zonesData.map(z => z.avg)), vmax = Math.max(1, ...R.zonesData.map(z => z.visits));
+  const gTot = R.gH + R.gM;
+  const inc = R.incidents.length ? R.incidents.map(e => `<li><span>${fmtClock(cfg.start + e.t * 60).slice(0, 5)}</span><em>${e.txt.replace(/</g, "&lt;")}</em><span class="${e.cls}">${e.pts}</span></li>`).join("") : `<li><span>—</span><em>Sin incidentes en el turno.</em><span></span></li>`;
   $("reportBody").innerHTML = `
-    <span class="eyebrow"><b>■</b> Fin del turno ${game.level + 1} · ${cfg.name} · ${fmtClock(cfg.start).slice(0, 5)}–${fmtClock(cfg.start + cfg.dur * 60).slice(0, 5)}</span>
-    <div class="grade"><span class="letter">${letter}</span><div><h2>${verdict}</h2><span class="pts">${game.levelScore.toLocaleString("es-AR")} pts en el turno · zonas +${zoneBonus}</span></div></div>
-    <div class="rgrid">
-      <div><span>Cobertura</span><strong>${pct(rec)}</strong></div>
-      <div><span>Precisión</span><strong>${pct(prec)}</strong></div>
-      <div><span>IoU medio</span><strong>${mIoU.toFixed(2)}</strong></div>
-      <div><span>Género</span><strong>${S.gTot ? pct(gAcc) : "—"}</strong></div>
-      <div><span>Ladrones detenidos</span><strong>${S.caught}/${S.thieves}</strong></div>
-      <div><span>Se escaparon</span><strong>${S.escaped}</strong></div>
-      <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
-      <div><span>Sin detectar</span><strong>${S.missed}</strong></div>
-      <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
-      <div><span>Hackeos reparados</span><strong>${S.hacks ? `${S.repaired}/${S.hacks}` : "—"}</strong></div>
-      <div><span>Tiempo sin señal</span><strong>${Math.round(S.downTime)} s</strong></div>
+    <header class="apphead">
+      <div><span class="eyebrow">App LeanVision · Sofía Moda</span><h2>Turno ${game.level + 1} · ${cfg.name}</h2><span class="note">${fmtClock(cfg.start).slice(0, 5)} a ${fmtClock(cfg.start + cfg.dur * 60).slice(0, 5)} · ${CAMS.length} cámaras · datos generados por vos</span></div>
+      <span class="live">● Datos del día</span>
+    </header>
+    <div class="kpis">
+      <div><span>Personas registradas</span><strong>${R.det}</strong><small>de ${R.entered} que entraron</small></div>
+      <div><span>Conversión</span><strong>${R.conv == null ? "—" : pct(R.conv)}</strong><small>${R.clientsDet ? `${R.bought} de ${R.clientsDet} clientes compraron` : "sin clientes registrados"}</small></div>
+      <div><span>Permanencia media</span><strong>${Math.round(R.dwell)} min</strong><small>por visita registrada</small></div>
+      <div><span>Ladrones detenidos</span><strong>${S.caught}/${S.thieves}</strong><small>${S.escaped ? `${S.escaped} se ${S.escaped === 1 ? "escapó" : "escaparon"}` : S.robbed ? `${S.robbed} robos sin detectar` : "sin robos sin resolver"}</small></div>
     </div>
-    <div class="rsplit">
-      <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
-        <span class="eyebrow">Tráfico por zona (solo personas detectadas)</span>
-        <div style="overflow-x:auto"><table class="ztable"><thead><tr><th>Zona</th><th>Visitas</th><th>Perm. media</th><th>Calce</th></tr></thead><tbody>
-        ${zrows.map(({ L, z }, i) => `<tr><td><i style="background:${L.color}"></i>${L.name}</td><td>${z.visits}</td><td>${z.visits ? Math.round(z.time / z.visits) + " s" : "—"}</td><td>${pct(zoneIoUs[i])}</td></tr>`).join("")}
-        ${sinZona ? `<tr><td><i style="background:#555"></i>Sin zona</td><td>${sinZona.visits}</td><td>${sinZona.visits ? Math.round(sinZona.time / sinZona.visits) + " s" : "—"}</td><td>—</td></tr>` : ""}
-        </tbody></table></div>
-        <p class="note">Así lo vería el dueño en la app: visitas y permanencia por zona, igual que la columna <code>zonas_tiempo</code> de cada sesión. Si no detectaste a alguien, no aparece acá.</p>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
-        <span class="eyebrow">Plano del salón · mapa de calor</span>
+    <div class="appgrid">
+      <section class="panel wide">
+        <h3>Tráfico por franja horaria</h3>
+        <div class="legend"><span><i style="background:${C_DET}"></i>Detectadas</span><span><i style="background:${C_MISS}"></i>Sin detectar (no llegan a la app)</span></div>
+        <div class="chartbox"><div class="tip" id="tip" hidden></div></div>
+      </section>
+      <section class="panel">
+        <h3>Perfil de visitantes</h3>
+        ${hbar("Hombres", R.gH, gTot, gTot ? `${R.gH} · ${pct(R.gH / gTot)}` : "—")}
+        ${hbar("Mujeres", R.gM, gTot, gTot ? `${R.gM} · ${pct(R.gM / gTot)}` : "—")}
+        <h3 class="sub">Clasificados como</h3>
+        ${hbar("Clientes", R.types.cliente, R.det, R.types.cliente)}
+        ${hbar("Empleados", R.types.empleado, R.det, R.types.empleado)}
+        ${hbar("Ladrones", R.types.ladron, R.det, R.types.ladron)}
+      </section>
+      <section class="panel">
+        <h3>Zonas: visitas y permanencia</h3>
+        ${R.anyZones ? R.zonesData.map(z => `<div class="zrow"><i style="background:${z.color}"></i><span>${z.name}</span><div class="zbars">${hbar("Visitas", z.visits, vmax, z.visits)}${hbar("Min. promedio", z.avg, zmax, z.visits ? Math.round(z.avg) : "—")}</div></div>`).join("") : `<p class="note">No pintaste zonas: la app solo puede mostrar el total del local.</p>`}
+      </section>
+      <section class="panel">
+        <h3>Mapa de calor del salón</h3>
         <canvas id="plan" width="300" height="360"></canvas>
-      </div>
+        <p class="note">Solo suma a las personas que detectaste. El Cerebro real guarda una foto de este mapa cada 15 minutos.</p>
+      </section>
+      <section class="panel">
+        <h3>Incidentes</h3>
+        <ul class="feed inc">${inc}</ul>
+      </section>
+      <section class="panel fact wide">
+        <canvas id="factBot" width="40" height="44" aria-hidden="true"></canvas>
+        <div><h3>Así lo hace el Cerebro de verdad</h3><p>${R.fact}</p></div>
+      </section>
     </div>
+    <section class="perf">
+      <div class="grade"><span class="letter">${R.letter}</span><div><h3>Tu trabajo como Cerebro</h3><span class="pts">${game.levelScore.toLocaleString("es-AR")} pts en el turno · zonas +${R.zoneBonus}</span></div></div>
+      <div class="rgrid">
+        <div><span>Cobertura</span><strong>${pct(R.rec)}</strong></div>
+        <div><span>Precisión</span><strong>${pct(R.prec)}</strong></div>
+        <div><span>IoU medio</span><strong>${R.mIoU.toFixed(2)}</strong></div>
+        <div><span>Género</span><strong>${S.gTot ? pct(R.gAcc) : "—"}</strong></div>
+        <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
+        <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
+        <div><span>Hackeos reparados</span><strong>${S.hacks ? `${S.repaired}/${S.hacks}` : "—"}</strong></div>
+        <div><span>Sin señal</span><strong>${Math.round(S.downTime)} min</strong></div>
+        <div><span>Calce de zonas</span><strong>${pct(R.zoneIoUs.reduce((a, b) => a + b, 0) / R.zoneIoUs.length)}</strong></div>
+      </div>
+    </section>
     <div class="actions">
       <button class="primary" id="btnNext">Siguiente turno</button>
       <button class="ghost" id="btnRetry">Repetir turno</button>
     </div>`;
-  drawPlan($("plan"));
   $("report").hidden = false;
-  $("btnNext").onclick = () => { game.level++; $("report").hidden = true; saveHot(); enterSetup(); };
+  const cbox = $("reportBody").querySelector(".chartbox");
+  cbox.insertAdjacentHTML("afterbegin", trafficSvg(R.buckets, Math.max(300, Math.round(cbox.clientWidth))));
+  drawPlan($("plan"));
+  drawBot($("factBot").getContext("2d"), { talk: false, blink: false }, 0);
+  const box = $("reportBody").querySelector(".chartbox"), tip = $("tip");
+  box.addEventListener("pointermove", e => {
+    const t = e.target.closest(".hit"); if (!t) { tip.hidden = true; return; }
+    tip.textContent = t.dataset.tip; tip.hidden = false;
+    const r = box.getBoundingClientRect();
+    tip.style.left = clamp(e.clientX - r.left + 12, 0, r.width - tip.offsetWidth) + "px"; tip.style.top = Math.max(0, e.clientY - r.top - 40) + "px";
+  });
+  box.addEventListener("pointerleave", () => { tip.hidden = true; });
+  $("report").hidden = false; $("report").scrollTop = 0;
+  $("btnNext").onclick = () => {
+    game.level++; $("report").hidden = true; saveHot();
+    playStory(PRE[game.level] || PRE_ENDLESS, enterSetup);
+  };
   $("btnRetry").onclick = () => { game.score -= game.levelScore; $("report").hidden = true; enterSetup(); };
   syncTools(); updateHud(); saveHot();
 }
