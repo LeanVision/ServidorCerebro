@@ -1,11 +1,4 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<style>body{margin:0}</style>
-</head>
-<body>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}</style></head><body>
 <title>Cámara Lean Retail</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -210,7 +203,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 
 /* Historia: personajes en pixel art y cuadro de diálogo */
 .story{position:absolute;inset:0;z-index:10;background:#05090a;cursor:pointer;user-select:none}
-#storyCv{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block}
+#storyCv{position:absolute;inset:0;width:100%;height:100%;display:block}
 .story .skip{position:absolute;top:12px;right:12px;z-index:2;background:rgba(5,9,10,.75);font-size:12px;padding:6px 10px}
 .dbox{position:absolute;left:3%;right:3%;bottom:4%;min-height:27%;background:rgba(7,11,13,.94);border:3px solid #e3ebe8;box-shadow:0 0 0 3px #0b1012,6px 6px 0 3px rgba(0,0,0,.5);padding:12px 16px 14px;display:flex;flex-direction:column;gap:6px}
 .dbox .who{font-family:var(--f-pixel);font-weight:600;font-size:clamp(14px,1.9vw,19px);letter-spacing:.02em}
@@ -286,6 +279,54 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 .apptitle{display:flex;align-items:center;gap:12px}
 .apptitle .lvmark{width:58px;height:auto;flex:none}
 @media (max-width:560px){.brandrow .lvmark{width:48px}.lockup .lvmark{width:80px}}
+
+/* Habilidades */
+.t-sk{color:#8fb8ff}
+.skills{display:flex;flex-wrap:wrap;gap:6px}
+.skill{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:7px;border:1px solid #2c4a7a;background:var(--panel);border-radius:8px;padding:5px 8px 7px 7px;cursor:pointer;min-width:0;color:#cfe0ff;--p:1}
+.skill svg{width:22px;height:22px;flex:none}
+.skill span{display:flex;flex-direction:column;line-height:1.15;text-align:left;min-width:0}
+.skill b{font-family:var(--f-display);font-size:12.5px;font-weight:600;letter-spacing:.03em;white-space:nowrap}
+.skill small{font-family:var(--f-mono);font-size:10.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.skill kbd{font-family:var(--f-mono);font-size:10.5px;border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--muted)}
+.skill .cdbar{position:absolute;left:0;bottom:0;height:3px;width:calc(var(--p) * 100%);background:#5b93ff;transition:width .1s linear}
+.skill[data-state="ready"]{border-color:#5b93ff;box-shadow:inset 0 0 0 1px rgba(91,147,255,.25)}
+.skill[data-state="ready"] small{color:#8fb8ff}
+.skill[data-state="on"]{background:#16264a;border-color:#8fb8ff}
+.skill[data-state="on"] small{color:#fff}
+.skill[data-state="on"] .cdbar{background:#8fb8ff}
+.skill[data-state="cd"]{color:var(--muted);border-color:var(--line)}
+.skill[data-state="cd"] .cdbar{background:#3a4a5a}
+.skill[data-state="lock"]{opacity:.5;cursor:not-allowed;color:var(--muted);border-color:var(--line)}
+.skill[data-state="lock"] .cdbar{display:none}
+.skill.nope{animation:nope .3s}
+@keyframes nope{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.skill.ping{animation:ping .7s}
+@keyframes ping{40%{box-shadow:0 0 0 4px rgba(91,147,255,.45)}}
+#cv.auto{cursor:pointer}
+.cambtn em.shield{background:#16264a;color:#8fb8ff;border:1px solid #5b93ff}
+@media (max-width:560px){.skill b{font-size:11.5px}.skill svg{width:18px;height:18px}.skill kbd{display:none}}
+
+/* Pantalla más grande: en pantallas anchas las miniaturas van en columna al costado */
+.app{max-width:1760px}
+@media (min-width:901px){.console{grid-template-columns:minmax(0,1fr) 280px}}
+@media (min-width:1100px){
+  .monitor{--scr:max(560px,calc((100vh - 200px) * 4 / 3));display:grid;grid-template-columns:minmax(0,var(--scr)) 176px;grid-template-areas:"bz cs" "tb cs";justify-content:center;align-items:start;gap:10px 12px}
+  .monitor .bezel{grid-area:bz;width:100%!important;min-width:0}
+  .monitor .toolbar{grid-area:tb;width:100%!important;min-width:0}
+  .monitor .rail{grid-area:cs;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .monitor .camstrip{grid-template-columns:minmax(0,1fr);width:100%;min-width:0;align-content:start}
+  .monitor .skills{flex-direction:column;flex-wrap:nowrap;width:100%;gap:6px}
+  .monitor .skill{width:100%}
+  .monitor .skill span{flex:1}
+}
+@media (max-width:1099.98px){
+  .rail{display:contents}
+  .skills{order:5;width:min(100%,calc((100vh - 440px) * 4 / 3));min-width:min(100%,520px)}
+  .skill{flex:1 1 140px}
+}
+@media (max-width:900px){.skills{width:100%!important}}
+.guide li{grid-template-columns:76px minmax(0,1fr)}
 </style>
 
 <div class="app">
@@ -377,8 +418,9 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
                 <li>Clasificala: género y cliente, empleado o ladrón.</li>
                 <li>Si marcás un ladrón entra la policía. Cuando lo alcanza, apretá la secuencia de flechas.</li>
                 <li>Desde el turno 2 te hackean cámaras: reparalas con un minijuego.</li>
+                <li>Usá las habilidades: cámara lenta, identificación automática y, desde el turno 2, escudo anti-hackeo. Después de usarlas se recargan.</li>
               </ol>
-              <p class="keys">Atajos: <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> o <kbd>V</kbd> cambiar cámara · <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>R</kbd> reparar · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto.</p>
+              <p class="keys">Atajos: <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> o <kbd>V</kbd> cambiar cámara · <kbd>H</kbd>/<kbd>M</kbd> género · <kbd>C</kbd>/<kbd>E</kbd>/<kbd>L</kbd> tipo · <kbd>Z</kbd> zonas · <kbd>R</kbd> reparar · <kbd>Q</kbd>/<kbd>F</kbd>/<kbd>G</kbd> habilidades · <kbd>P</kbd> pausa · flechas o <kbd>WASD</kbd> para el arresto.</p>
               <div class="actions"><button class="primary" id="btnIntro">Empezar</button><button class="ghost" id="btnNoStory">Jugar sin historia</button></div>
             </div>
           </div>
@@ -389,7 +431,10 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
         </div>
       </div>
 
-      <div class="camstrip" id="camstrip" role="group" aria-label="Cámaras"></div>
+      <div class="rail">
+        <div class="camstrip" id="camstrip" role="group" aria-label="Cámaras"></div>
+        <div class="skills" id="skills" role="group" aria-label="Habilidades" hidden></div>
+      </div>
 
       <div class="toolbar">
         <div class="seg" role="group" aria-label="Modo">
@@ -432,6 +477,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
           <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van. Nunca entra al depósito.</span></li>
           <li><span class="tag t-pol">Policía</span><span>Entra cuando marcás a alguien como ladrón. Si lo alcanza, tenés unos segundos para la secuencia de flechas. Si era inocente, perdés puntos.</span></li>
           <li><span class="tag t-hack">Hackeo</span><span>Una cámara se llena de estática y no deja marcar. Repárala: conectar cables, matar bugs en el Cerebro o rearmar la imagen. Mientras tanto, seguí con las otras cámaras.</span></li>
+          <li><span class="tag t-sk">Habilidad</span><span><b>Q</b> Cámara lenta: 6 s a un tercio de velocidad. <b>F</b> Auto-ID: tocá a una persona y Lenna la identifica sola (vale la mitad). <b>G</b> Escudo: bloquea hackeos 20 s; activalo cuando Lenna avise. Cada una se recarga después de usarla.</span></li>
           <li><span class="tag t-man">Maniquí</span><span>No se mueve, no tiene pelo y está sobre una base. No lo marques.</span></li>
         </ul>
       </section>
@@ -884,7 +930,7 @@ const game = {
 };
 try { game.best = +localStorage.getItem("lv-camara-best") || 0; } catch (e) { }
 function freshStats() {
-  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, escaped: 0, robbed: 0, falseAcc: 0, missed: 0, hacks: 0, repaired: 0, downTime: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
+  return { spawned: 0, thieves: 0, tp: 0, fp: 0, mannequin: 0, dup: 0, ious: [], gOK: 0, gTot: 0, tOK: 0, tTot: 0, caught: 0, escaped: 0, robbed: 0, falseAcc: 0, missed: 0, hacks: 0, repaired: 0, blocked: 0, auto: 0, skillUses: 0, downTime: 0, zone: {}, detScore: 0, clsScore: 0, penScore: 0 };
 }
 
 function setupLevel() {
@@ -892,7 +938,7 @@ function setupLevel() {
   people = []; cops = []; floats = []; flashes = []; resetProducts();
   game.qte = null; qteEl.hidden = true;
   for (const c of CAMS) c.hacked = null;
-  closeFix();
+  closeFix(); resetSkills(); game.hackWarn = 0;
   game.t = 0; game.levelScore = 0; game.stats = freshStats(); game.heatGrid.fill(0);
   game.visits = []; game.events = [];
   game.spawnIn = 1.5;
@@ -1014,7 +1060,7 @@ cv.addEventListener("pointerup", () => {
   const d = drag; drag = null;
   if (d.zone) { renderMissions(); saveHot(); return; }
   const box = { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0) };
-  if (box.w < 10 && box.h < 10) { clickAt(d.x0, d.y0); return; }
+  if (box.w < 10 && box.h < 10) { if (!(skillOn("auto") && autoIdAt(d.x0, d.y0))) clickAt(d.x0, d.y0); return; }
   if (box.w < 10 || box.h < 18) return;
   evaluateBox(box, d.t0);
 });
@@ -1485,7 +1531,7 @@ function syncCamUi() {
     else if (game.state === "play") {
       const unmarked = people.filter(p => !p.track && inView(c, p)).length;
       const thief = people.some(p => p.track && p.track.type === "ladron" && !p.cuffed && inView(c, p));
-      if (thief) { txt = "LADRÓN"; cls = "thief"; } else if (unmarked) { txt = `${unmarked} sin marcar`; cls = "warn"; }
+      if (thief) { txt = "LADRÓN"; cls = "thief"; } else if (unmarked) { txt = `${unmarked} sin marcar`; cls = "warn"; } else if (skillOn("shield")) { txt = "ESCUDO"; cls = "shield"; }
     }
     t.badge.hidden = !txt; t.badge.textContent = txt; t.badge.className = cls;
   });
@@ -1498,14 +1544,18 @@ function syncHackUi() {
 }
 
 // ───────────────────────── Bucle
-let last = performance.now(), nowT = 0, thumbTurn = 0, uiTick = 0;
+let last = performance.now(), nowT = 0, thumbTurn = 0, uiTick = 0, skTick = 0;
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now; nowT = now / 1000;
   if (game.state === "play" && !game.paused) {
     if (game.qte) {
       game.qte.t += dt; renderQte();
       if (game.qte.t >= game.qte.limit) qteLose();
-    } else update(dt * (popFor ? .25 : fix ? .5 : tutSlow() ? .3 : 1));
+    } else {
+      tickSkills(dt);
+      const k = popFor ? .25 : fix ? .5 : tutSlow() ? .3 : 1;
+      update(dt * Math.min(k, skillOn("slow") ? SLOW_K : 1));
+    }
   } else if (game.state === "setup") {
     for (const p of people) p.headTurn = Math.sin(now / 1400 + p.id) * .5;
   }
@@ -1523,6 +1573,7 @@ function frame(now) {
   drawCoach(nowT);
   if (popFor) placePopup();
   uiTick -= dt; if (uiTick <= 0) { uiTick = .3; syncCamUi(); }
+  skTick -= dt; if (skTick <= 0) { skTick = .1; syncSkills(); }
   requestAnimationFrame(frame);
 }
 
@@ -1540,7 +1591,15 @@ function update(dt) {
       game.spawnIn = rnd(cfg.spawn[0], cfg.spawn[1]);
       if (inside < cfg.maxIn) spawnPerson("cliente");
     }
-    if (game.hackTimes.length && game.t >= game.hackTimes[0]) { game.hackTimes.shift(); startHack(); }
+    if (game.hackTimes.length) {
+      const at = game.hackTimes[0];
+      if (game.hackWarn !== at && game.t >= at - HACK_WARN && !skillLocked(SKILLS[2])) {
+        game.hackWarn = at;
+        coach("hackwarn", "Detecto un escaneo raro en la red: alguien quiere meterse en una cámara. ¡Activá el ESCUDO (G) antes de que entre!", true);
+      }
+      if (game.t >= at) { game.hackTimes.shift(); if (skillOn("shield")) blockHack(); else startHack(); }
+    }
+    if (game.t > 25 && !game.tutDone) coach("skills", "Cuando se llene el local, usá las habilidades de abajo: Q pone cámara lenta y F activa el Auto-ID. Después de usarlas se recargan.");
   }
   for (const c of CAMS) if (c.hacked) game.stats.downTime += dt;
   if (curCam.room !== "dep" && people.some(p => !p.cashier && roomOf(p.x, p.z) === "dep")) coach("depot", "Hay movimiento en el depósito. Mirá la CAM-03 (tecla 3).");
@@ -2205,6 +2264,7 @@ function drawHud(time) {
     ctx.font = '600 13px "JetBrains Mono", monospace'; const w = ctx.measureText(msg).width + 24;
     ctx.fillStyle = Math.floor(time * 2) % 2 ? "rgba(140,10,10,.8)" : "rgba(60,0,0,.8)"; ctx.fillRect(W / 2 - w / 2, 74, w, 24); ctx.fillStyle = "#ffd0cc"; ctx.fillText(msg, W / 2, 87);
   }
+  if (game.state === "play") drawSkillHud(time);
   if (game.state === "setup") {
     const msg = "Pintá las zonas sobre el piso · después tocá INICIAR TURNO";
     ctx.font = '600 14px "JetBrains Mono", monospace'; const w = ctx.measureText(msg).width + 24;
@@ -2236,6 +2296,14 @@ function render(time) {
     ctx.strokeText("ARRASTRÁ DE ACÁ A ACÁ", gt.x + gt.w / 2, gt.y - pad - 10); ctx.fillStyle = "#ffb547"; ctx.fillText("ARRASTRÁ DE ACÁ A ACÁ", gt.x + gt.w / 2, gt.y - pad - 10);
     ctx.textAlign = "left"; ctx.globalAlpha = 1;
   }
+  if (skillOn("auto") && !curCam.hacked) {
+    ctx.strokeStyle = "#5b93ff"; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.lineDashOffset = -time * 24;
+    ctx.font = '700 13px "JetBrains Mono", monospace'; ctx.textAlign = "center"; ctx.fillStyle = "#8fb8ff";
+    for (const p of people) if ((!p.track || !p.track.type) && !p.cuffed && inView(curCam, p)) {
+      const b = personBox(p); ctx.strokeRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6); ctx.fillText("?", b.x + b.w / 2, b.y - 12);
+    }
+    ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.textAlign = "left";
+  }
   if (drag && !drag.zone) {
     const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
     ctx.fillStyle = "rgba(67,224,138,.12)"; ctx.fillRect(x, y, w, h);
@@ -2249,7 +2317,8 @@ function render(time) {
   ctx.font = '700 15px "Chakra Petch", sans-serif'; ctx.textAlign = "center";
   for (const f of floats) {
     ctx.globalAlpha = clamp(1.8 - f.t, 0, 1); const y = f.y - f.t * 26;
-    ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText(f.txt, f.x, y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, y);
+    const hw = ctx.measureText(f.txt).width / 2 + 10, x = clamp(f.x, hw, W - hw);
+    ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.strokeText(f.txt, x, y); ctx.fillStyle = f.color; ctx.fillText(f.txt, x, y);
   }
   ctx.globalAlpha = 1; ctx.textAlign = "left";
 }
@@ -2302,6 +2371,7 @@ function syncTools() {
   $("tHeat").setAttribute("aria-pressed", String(game.heat));
   $("btnStart").hidden = game.state !== "setup";
   $("btnPause").hidden = game.state !== "play";
+  skillsEl.hidden = game.state !== "play";
   $("btnPause").textContent = game.paused ? "Seguir" : "Pausa";
   cv.classList.toggle("paint", z);
   syncHackUi();
@@ -2340,6 +2410,8 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (fix) { if (k === "escape") closeFix(); return; }
+  const sk = SKILLS.find(x => x.key.toLowerCase() === k);
+  if (sk && !e.repeat && game.state === "play") { useSkill(sk.id); return; }
   if (popFor) {
     if (k === "h") return chooseGender("H");
     if (k === "m") return chooseGender("M");
@@ -2481,6 +2553,7 @@ const PRE = {
     { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID. Así no cuento dos veces a la misma persona." },
     { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido: sin señal no hay datos." },
     { who: "owner", text: "¿Hackers en mi local? ¡Lo que me faltaba!" },
+    { who: "bot", text: "Tranqui, Sofía. Cuando detecte que alguien está por entrar te aviso unos segundos antes. Si activás el Escudo (G) a tiempo, lo bloqueo y la cámara ni se entera." },
   ],
   2: [
     { who: "owner", text: "Llegó la hora pico. Es cuando más vendo… y cuando más me roban." },
@@ -2512,16 +2585,16 @@ function drawPanel(kind, time) {
     T("CÓMO FUNCIONA LEANVISION", 160, 26, 10, "#5b93ff");
     const steps = [["Tus cámaras", "las que ya tenés"], ["El Cerebro", "en tu local, con Lenna"], ["La nube", "solo resultados"], ["La app", "en tu celular"]];
     steps.forEach(([a, b], i) => {
-      const x = 52 + i * 72, y = 78, on = Math.floor(time * 1.5) % 4 === i;
-      B(x - 26, y - 26, 52, 44, on ? "#16264a" : "#121c1e"); c.strokeStyle = on ? "#5b93ff" : "#2a3a3d"; c.lineWidth = 1; c.strokeRect(x - 25.5, y - 25.5, 51, 43);
-      icon(x, y - 6, () => {
+      const x = 52 + i * 72, y = 72, on = Math.floor(time * 1.5) % 4 === i;
+      B(x - 26, y - 24, 52, 40, on ? "#16264a" : "#121c1e"); c.strokeStyle = on ? "#5b93ff" : "#2a3a3d"; c.lineWidth = 1; c.strokeRect(x - 25.5, y - 23.5, 51, 39);
+      icon(x, y - 4, () => {
         if (i === 0) { B(-12, -6, 18, 10, "#e3e6e2"); B(6, -3, 6, 4, "#9aa3a5"); B(-9, -3, 4, 4, "#0b1012"); B(-8, -2, 1, 1, "#ff3b30"); B(-4, 4, 2, 6, "#9aa3a5"); }
         if (i === 1) { B(-10, -9, 20, 18, "#1e2327"); for (let k = 0; k < 4; k++) { B(-7, -6 + k * 4, 10, 2, "#2a3036"); B(5, -6 + k * 4, 2, 2, Math.sin(time * 6 + k) > 0 ? "#43e08a" : "#16301f"); } }
         if (i === 2) { B(-12, -2, 24, 8, "#e3e6e2"); B(-8, -6, 10, 6, "#e3e6e2"); B(0, -8, 8, 8, "#e3e6e2"); B(-2, 6, 4, 4, "#5b93ff"); }
         if (i === 3) { B(-7, -11, 14, 22, "#2a2e30"); B(-5, -8, 10, 15, "#0b1416"); B(-4, 1, 2, 5, "#5b93ff"); B(-1, -2, 2, 8, "#5b93ff"); B(2, -5, 2, 11, "#5b93ff"); }
       });
-      T(a, x, y + 9, 8); T(b, x, y + 30, 7, "#8d9e9a", 400);
-      if (i < 3) { const ax = x + 28, f = (time * 30 + i * 10) % 14; B(ax, y - 4, 14, 2, "#2a3a3d"); B(ax + f - 2, y - 5, 4, 4, "#5b93ff"); }
+      T(a, x, y + 27, 8.5, on ? "#ffffff" : "#e3ebe8"); T(b, x, y + 39, 7, "#a9b8b4", 400);
+      if (i < 3) { const ax = x + 28, f = (time * 30 + i * 10) % 14; B(ax, y - 5, 16, 2, "#2a3a3d"); B(ax + f - 1, y - 6, 4, 4, "#5b93ff"); }
     });
     T("La imagen se procesa en el local. A la app viajan los números.", 160, 140, 8, "#c9d4d0", 400);
   } else if (kind === "app") {
@@ -2533,7 +2606,12 @@ function drawPanel(kind, time) {
     B(170, 38, 120, 52, "#121c1e"); T("Permanencia por zona", 230, 48, 8);
     [["Entrada", 30, "#4d8dff"], ["Góndolas", 90, "#b46cff"], ["Caja", 55, "#ffb020"]].forEach(([n, v, col], i) => { T(n, 196, 61 + i * 10, 7, "#c9d4d0", 400); B(218, 58 + i * 10, v * .7, 5, col); });
     B(170, 96, 120, 54, "#121c1e"); T("Mapa de calor", 230, 105, 8);
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 10; x++) { const v = (Math.sin(x * .9 + y * 1.3 + time) + 1) / 2; B(180 + x * 10, 113 + y * 8, 9, 7, `hsl(${220 - 200 * v},90%,${35 + 20 * v}%)`); }
+    // dos focos de gente (caja y góndolas) que se mueven despacio, con los mismos colores que el mapa del juego
+    const hot = [[7 + Math.sin(time * .7) * .8, 1.2, 1], [2.5 + Math.cos(time * .5) * 1.2, 2.4, .8]];
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 10; x++) {
+      const v = Math.min(1, hot.reduce((a, [hx, hy, k]) => a + k * Math.exp(-((x - hx) ** 2 + (y - hy) ** 2 * 1.6) / 2.2), 0));
+      B(180 + x * 10, 113 + y * 8, 9, 7, v < .08 ? "#16201f" : `hsl(${220 - 220 * Math.pow(v, .6)},90%,${30 + 25 * v}%)`);
+    }
   } else if (kind === "uses") {
     T("PARA QUÉ TE SIRVE", 160, 26, 10, "#5b93ff");
     const items = [["Personal", "cuánta gente poner en cada horario"], ["Promos", "dónde ubicarlas para que se vean"], ["Vidriera", "si atrae gente o pasa de largo"], ["Caja", "si la fila espanta clientes"]];
@@ -2547,26 +2625,42 @@ function drawPanel(kind, time) {
     const items = [["Detectar", "encuadra a cada persona"], ["Seguir", "la reconoce entre cámaras"], ["Ubicar", "sabe en qué zona está"], ["Avisar", "robos, cámaras caídas"]];
     items.forEach(([a, b], i) => {
       const x = 52 + i * 72, y = 82, on = Math.floor(time * 1.2) % 4 === i;
-      B(x - 28, y - 34, 56, 64, on ? "#16264a" : "#121c1e");
-      icon(x, y - 14, () => {
+      B(x - 33, 44, 66, 84, on ? "#16264a" : "#121c1e"); c.strokeStyle = on ? "#5b93ff" : "#2a3a3d"; c.lineWidth = 1; c.strokeRect(x - 32.5, 44.5, 65, 83);
+      icon(x, 66, () => {
         c.strokeStyle = "#5b93ff"; c.lineWidth = 2;
         if (i === 0) { c.setLineDash([3, 2]); c.strokeRect(-7, -10, 14, 20); c.setLineDash([]); B(-2, -7, 4, 4, "#e3e6e2"); B(-3, -3, 6, 9, "#e3e6e2"); }
         if (i === 1) { B(-10, -6, 8, 6, "#e3e6e2"); B(2, -6, 8, 6, "#e3e6e2"); B(-2, 4, 4, 2, "#5b93ff"); B(-6, 2, 12, 2, "#5b93ff"); }
         if (i === 2) { B(-10, -8, 20, 16, "#2a3a3d"); B(-10, -8, 10, 8, "#4d8dff"); B(0, 0, 10, 8, "#b46cff"); B(-1, -1, 3, 3, "#ffffff"); }
         if (i === 3) { B(-2, -10, 4, 12, Math.floor(time * 3) % 2 ? "#ff5a52" : "#ffb547"); B(-2, 5, 4, 4, Math.floor(time * 3) % 2 ? "#ff5a52" : "#ffb547"); }
       });
-      T(a, x, y + 6, 9); T(b, x, y + 20, 7, "#c9d4d0", 400);
+      T(a, x, 94, 9, on ? "#ffffff" : "#e3ebe8");
+      wrapT(b, x, 107, 7, "#a9b8b4", 58, 9);
     });
+  }
+  function wrapT(txt, x, y, size, col, maxW, lh) {
+    c.font = `400 ${size}px "Pixelify Sans", monospace`;
+    const out = [""];
+    for (const w of txt.split(" ")) { const t = out[out.length - 1] ? out[out.length - 1] + " " + w : w; if (c.measureText(t).width > maxW && out[out.length - 1]) out.push(w); else out[out.length - 1] = t; }
+    out.forEach((l, k) => T(l, x, y + k * lh, size, col, 400));
   }
 }
 const storyEl = $("story"), scv = $("storyCv"), sg = scv.getContext("2d");
-const storyBgCv = sprCanvas(160, 120);
+const storyBgCv = sprCanvas(320, 240);
+// La escena se arma en 320×240 «píxeles de juego», pero el lienzo tiene la resolución real de la pantalla:
+// los sprites se agrandan sin suavizar y los textos de las láminas quedan nítidos.
+let SS = 1;
+function fitStory() {
+  const r = scv.getBoundingClientRect(); if (!r.width) return;
+  const k = Math.max(1, Math.min(8, Math.ceil(r.width * (window.devicePixelRatio || 1) / 320)));
+  if (k !== SS || scv.width !== 320 * k) { SS = k; scv.width = 320 * k; scv.height = 240 * k; }
+}
+if (window.ResizeObserver) new ResizeObserver(fitStory).observe(scv);
 let story = null;
 function playStory(lines, onDone) {
-  renderView(storyBgCv.getContext("2d"), CAMS[0], 160 / W, { tracks: false });
+  renderView(storyBgCv.getContext("2d"), CAMS[0], 320 / W, { tracks: false });
   story = { lines: lines.filter(Boolean), i: 0, chars: 0, shown: -1, onDone };
   closePopup(); closeFix(); $("coach").hidden = true;
-  game.state = "story"; storyEl.hidden = false; syncTools();
+  game.state = "story"; storyEl.hidden = false; syncTools(); fitStory();
   showLine();
 }
 function showLine() {
@@ -2597,7 +2691,7 @@ function drawStory(time, dt) {
   const n = Math.floor(story.chars);
   if (n !== story.shown) { story.shown = n; $("dText").textContent = L.text.slice(0, n); $("dMore").hidden = n < L.text.length; }
   const typing = n < L.text.length;
-  sg.setTransform(1, 0, 0, 1, 0, 0); sg.imageSmoothingEnabled = false;
+  sg.setTransform(SS, 0, 0, SS, 0, 0); sg.imageSmoothingEnabled = false;
   sg.drawImage(storyBgCv, 0, 0, 320, 240);
   sg.fillStyle = "rgba(8,12,14,.5)"; sg.fillRect(0, 0, 320, 240);
   const blinkAt = k => (time * .9 + k * .37) % 4 < .12;
@@ -2618,6 +2712,122 @@ function drawStory(time, dt) {
   }
 }
 
+// ───────────────────────── Habilidades: se usan, duran un rato y se recargan
+const SLOW_K = .35, HACK_WARN = 7;
+const SKILLS = [
+  { id: "slow", key: "Q", name: "Cámara lenta", dur: 6, cd: 30, unlock: 0, color: "#8fb8ff",
+    icon: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 3h6"/>' },
+  { id: "auto", key: "F", name: "Auto-ID", dur: 8, cd: 40, unlock: 0, color: "#8fb8ff",
+    icon: '<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="9.5" r="2.5"/><path d="M8 17c.6-2.4 2.1-3.6 4-3.6s3.4 1.2 4 3.6"/>' },
+  { id: "shield", key: "G", name: "Escudo", dur: 20, cd: 50, unlock: 1, color: "#8fb8ff",
+    icon: '<path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6z"/><path d="M9 12l2 2 4-4"/>' },
+];
+const TUT_SKILLS = 5; // paso del tutorial que presenta las habilidades
+const SK = {};
+const skillOn = id => SK[id] && SK[id].on > 0;
+function skillLocked(k) {
+  if (game.level < k.unlock) return `Desde el turno ${k.unlock + 1}`;
+  if (tut && tut.i < TUT_SKILLS) return "Después del tutorial";
+  return "";
+}
+const skillsEl = $("skills");
+const skillBtns = SKILLS.map(k => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "skill"; b.dataset.sk = k.id;
+  b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${k.icon}</svg><span><b>${k.name}</b><small></small></span><kbd>${k.key}</kbd><i class="cdbar"></i>`;
+  b.onclick = () => useSkill(k.id);
+  skillsEl.appendChild(b);
+  return { k, b, small: b.querySelector("small"), last: "" };
+});
+function resetSkills() { for (const k of SKILLS) SK[k.id] = { on: 0, cd: 0 }; syncSkills(); }
+function useSkill(id) {
+  const k = SKILLS.find(x => x.id === id), st = SK[id], btn = skillBtns.find(x => x.k === k).b;
+  if (game.state !== "play" || game.paused || game.qte) return;
+  if (skillLocked(k) || st.on > 0 || st.cd > 0) { btn.classList.remove("nope"); void btn.offsetWidth; btn.classList.add("nope"); return; }
+  st.on = k.dur; st.cd = k.cd;
+  game.stats.skillUses++;
+  logEvent(`Habilidad: ${k.name}`, "", "");
+  if (id === "slow") floatAt(W / 2, H / 2 - 150, "CÁMARA LENTA", k.color);
+  if (id === "auto") { closePopup(); if (game.mode !== "detect") setMode("detect"); floatAt(W / 2, H / 2 - 150, "AUTO-ID · TOCÁ A UNA PERSONA", k.color); }
+  if (id === "shield") floatAt(W / 2, H / 2 - 150, "ESCUDO ANTI-HACKEO ACTIVO", k.color);
+  syncSkills();
+}
+// La recarga empieza cuando se termina el efecto y corre en tiempo real (la cámara lenta no la frena).
+function tickSkills(dt) {
+  for (const k of SKILLS) {
+    const st = SK[k.id];
+    if (st.on > 0) st.on = Math.max(0, st.on - dt);
+    else if (st.cd > 0) st.cd = Math.max(0, st.cd - dt);
+  }
+}
+function syncSkills() {
+  for (const s of skillBtns) {
+    const st = SK[s.k.id] || { on: 0, cd: 0 }, lock = skillLocked(s.k);
+    const state = lock ? "lock" : st.on > 0 ? "on" : st.cd > 0 ? "cd" : "ready";
+    const txt = lock || (state === "on" ? `Activa · ${Math.ceil(st.on)} s` : state === "cd" ? `Recarga ${Math.ceil(st.cd)} s` : "Lista");
+    if (s.last !== state + txt) {
+      if (s.last.startsWith("cd") && state === "ready") { s.b.classList.remove("ping"); void s.b.offsetWidth; s.b.classList.add("ping"); }
+      s.last = state + txt; s.small.textContent = txt; s.b.dataset.state = state;
+      s.b.title = `${s.k.name} (${s.k.key}) · dura ${s.k.dur} s · se recarga en ${s.k.cd} s`;
+    }
+    s.b.style.setProperty("--p", state === "on" ? st.on / s.k.dur : state === "cd" ? 1 - st.cd / s.k.cd : state === "ready" ? 1 : 0);
+  }
+  cv.classList.toggle("auto", skillOn("auto"));
+}
+// Auto-ID: Lenna encuadra y clasifica a la persona tocada. Vale la mitad que un recuadro hecho a mano.
+const ROLE_TXT = { cliente: "CLIENTE", empleado: "EMPLEADO", ladron: "LADRÓN" };
+function autoIdAt(x, y) {
+  let hit = null, hd = Infinity;
+  const inside = (b, pad) => x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad;
+  for (const p of people) if (!p.cuffed && inView(curCam, p) && inside(personBox(p), 8)) { const d = proj(p.x, 0, p.z).d; if (d < hd) { hd = d; hit = p; } }
+  if (!hit) {
+    if (cops.some(c => inView(curCam, c) && inside(personBox(c), 4))) { floatAt(x, y - 20, "ES EL POLICÍA", "#7fa8ff"); return true; }
+    if (curCam.room === "salon" && mannequins.some(m => inView(curCam, m) && inside(personBox(m), 4))) { floatAt(x, y - 20, "MANIQUÍ · LENNA LO DESCARTA", "#8fb8ff"); return true; }
+    return false;
+  }
+  const S = game.stats;
+  if (hit.track && hit.track.gender && hit.track.type) { openPopup(hit); return true; }
+  if (!hit.track) {
+    S.tp++; S.auto++; scorePoints(50, "detScore");
+    hit.track = { id: trackSeq++, gender: null, type: null, born: game.t, cam: curCam.id, auto: true };
+    logEvent(`ID ${idStr(hit)} identificado por Lenna en ${camTag(curCam)}`, "+50", "p");
+  }
+  const tr = hit.track;
+  if (!tr.gender) { tr.gender = hit.gender; S.gTot++; S.gOK++; }
+  if (!tr.type) { tr.type = hit.role; if (hit.role === "ladron") { logEvent(`ID ${idStr(hit)} marcado como ladrón`, "", "n"); callPolice(hit); } }
+  if (popFor === hit) syncPopup();
+  flashBox(personBox(hit), "#5b93ff");
+  floatText(hit, `AUTO-ID · ${hit.gender === "H" ? "HOMBRE" : "MUJER"} · ${ROLE_TXT[hit.role]}`, "#8fb8ff");
+  return true;
+}
+function blockHack() {
+  game.stats.blocked++; scorePoints(30, null);
+  logEvent("Intrusión bloqueada por el escudo", "+30", "p");
+  floatAt(W / 2, 150, "INTRUSIÓN BLOQUEADA +30", "#8fb8ff");
+}
+function drawSkillHud(time) {
+  let y = 146;
+  const pill = (txt, col) => {
+    ctx.font = '600 13px "JetBrains Mono", monospace'; ctx.textAlign = "left";
+    const w = ctx.measureText(txt).width + 22;
+    ctx.fillStyle = "rgba(10,20,45,.72)"; ctx.fillRect(40, y - 12, w, 24);
+    ctx.fillStyle = col; ctx.fillRect(40, y - 12, 3, 24); ctx.fillText(txt, 50, y + 1); y += 30;
+  };
+  if (skillOn("slow")) {
+    ctx.strokeStyle = `rgba(91,147,255,${.35 + .2 * Math.sin(time * 5)})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, W - 8, H - 8);
+    pill(`◷ CÁMARA LENTA · ${Math.ceil(SK.slow.on)} s`, "#8fb8ff");
+  }
+  if (skillOn("auto")) pill(`◎ AUTO-ID · ${Math.ceil(SK.auto.on)} s · tocá a una persona`, "#8fb8ff");
+  if (skillOn("shield")) pill(`⛨ ESCUDO ANTI-HACKEO · ${Math.ceil(SK.shield.on)} s`, "#8fb8ff");
+  const at = game.hackTimes[0];
+  if (at && game.hackWarn === at && game.t < at) {
+    const msg = skillOn("shield") ? "INTENTO DE INTRUSIÓN · EL ESCUDO LO VA A FRENAR" : `⚠ INTENTO DE INTRUSIÓN EN ${Math.ceil(at - game.t)} s · ACTIVÁ EL ESCUDO (G)`;
+    ctx.font = '600 13px "JetBrains Mono", monospace'; ctx.textAlign = "center"; const w = ctx.measureText(msg).width + 24;
+    ctx.fillStyle = skillOn("shield") ? "rgba(10,30,70,.85)" : Math.floor(time * 3) % 2 ? "rgba(150,90,0,.85)" : "rgba(80,45,0,.85)";
+    ctx.fillRect(W / 2 - w / 2, 104, w, 24); ctx.fillStyle = skillOn("shield") ? "#cfe0ff" : "#ffe2b0"; ctx.fillText(msg, W / 2, 117);
+  }
+  ctx.textAlign = "left";
+}
+
 // ───────────────────────── Tutorial guiado (primer turno, con historia)
 const TUT = [
   { text: "Elegí «Entrada» abajo y pintá el piso frente a la puerta de SALIDA. Es la zona por donde entra la gente.", done: () => missionIoU(MISSIONS[0]) >= .3 },
@@ -2625,6 +2835,7 @@ const TUT = [
   { text: "¡Entró alguien! Arrastrá un recuadro desde la cabeza hasta los pies. Te marco dónde. El tiempo va más lento hasta que lo hagas.", done: () => game.stats.tp >= 1, slow: true, ghost: true },
   { text: "Bien. Ahora clasificala: hombre o mujer, y qué rol tiene. Así la app conoce el perfil de tus clientes.", done: () => people.some(p => p.track && p.track.gender && p.track.type), slow: true },
   { text: "Tenés tres cámaras. Tocá la miniatura de la CAM-03 (o la tecla 3) para mirar el depósito.", done: () => curCam.id === 3 },
+  { text: "Abajo tenés habilidades que se recargan. Probá la Cámara lenta (Q) o el Auto-ID (F): con el Auto-ID tocás a una persona y yo la encuadro y la clasifico sola.", done: () => game.stats.skillUses > 0 || tut.t > 16 },
   { text: "¡Listo! Seguí solo: detectá a todos, revisá las tres cámaras y ojo con los que agarran cosas sin canasto.", done: () => tut.t > 7 },
 ];
 let tut = null;
@@ -2793,11 +3004,13 @@ function showReport(R) {
       <div class="rgrid">
         <div><span>Cobertura</span><strong>${pct(R.rec)}</strong></div>
         <div><span>Precisión</span><strong>${pct(R.prec)}</strong></div>
-        <div><span>IoU medio</span><strong>${R.mIoU.toFixed(2)}</strong></div>
+        <div><span>IoU medio</span><strong>${S.ious.length ? R.mIoU.toFixed(2) : "—"}</strong></div>
         <div><span>Género</span><strong>${S.gTot ? pct(R.gAcc) : "—"}</strong></div>
         <div><span>Falsos positivos</span><strong>${S.fp + S.mannequin}</strong></div>
         <div><span>Acusaciones falsas</span><strong>${S.falseAcc}</strong></div>
         <div><span>Hackeos reparados</span><strong>${S.hacks ? `${S.repaired}/${S.hacks}` : "—"}</strong></div>
+        <div><span>Intrusiones bloqueadas</span><strong>${S.blocked || "—"}</strong></div>
+        <div><span>Habilidades usadas</span><strong>${S.skillUses}${S.auto ? ` · ${S.auto} auto-ID` : ""}</strong></div>
         <div><span>Sin señal</span><strong>${Math.round(S.downTime)} min</strong></div>
         <div><span>Calce de zonas</span><strong>${pct(R.zoneIoUs.reduce((a, b) => a + b, 0) / R.zoneIoUs.length)}</strong></div>
       </div>
@@ -2864,5 +3077,4 @@ function boot(data) {
 window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
 })();
 </script>
-</body>
-</html>
+</body></html>
