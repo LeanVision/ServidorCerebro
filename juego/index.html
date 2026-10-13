@@ -411,7 +411,9 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
         <h2>Guía de campo</h2>
         <ul class="guide">
           <li><span class="tag t-emp">Empleado</span><span>Chaleco naranja con franja reflectiva. Cobra en la caja o trae mercadería del depósito en una caja de cartón.</span></li>
-          <li><span class="tag t-lad">Ladrón</span><span>Agarra productos sin canasto, mira a los costados, los esconde y sale sin pasar por la caja. Algunos se meten al depósito: mirá la CAM-03. Suele usar capucha, pero no siempre.</span></li>
+          <li><span class="tag t-lad">Ladrón</span><span>Buzo oscuro con capucha, tapabocas negro, anteojos negros y mochila. Agarra productos sin canasto, mira a los costados y sale sin pasar por la caja. Algunos se meten al depósito: mirá la CAM-03.</span></li>
+          <li><span class="tag t-cli">Mujer</span><span>Pelo largo, melena o cola, aros dorados y labios pintados. Muchas usan vestido.</span></li>
+          <li><span class="tag t-cli">Hombre</span><span>Pelo corto, hombros más anchos y a veces barba.</span></li>
           <li><span class="tag t-cli">Cliente</span><span>Recorre, mete cosas al canasto y paga. Algunos solo miran y se van. Nunca entra al depósito.</span></li>
           <li><span class="tag t-pol">Policía</span><span>Entra cuando marcás a alguien como ladrón. Si lo alcanza, tenés unos segundos para la secuencia de flechas. Si era inocente, perdés puntos.</span></li>
           <li><span class="tag t-hack">Hackeo</span><span>Una cámara se llena de estática y no deja marcar. Repárala: conectar cables, matar bugs en el Cerebro o rearmar la imagen. Mientras tanto, seguí con las otras cámaras.</span></li>
@@ -660,8 +662,8 @@ function payPOI() {
 // ───────────────────────── Niveles
 const LEVELS = [
   { name: "Apertura", start: 9 * 3600, dur: 90, spawn: [4.5, 7.5], thieves: 1, restock: 1, maxIn: 6, hoodDecoy: 0, thiefBare: 0, depThief: 0, hacks: 0, flicker: 0 },
-  { name: "Mediodía", start: 13 * 3600, dur: 110, spawn: [3.2, 5.5], thieves: 2, restock: 2, maxIn: 8, hoodDecoy: .15, thiefBare: .25, depThief: .5, hacks: 1, flicker: 0 },
-  { name: "Hora pico", start: 18.5 * 3600, dur: 130, spawn: [2, 3.8], thieves: 3, restock: 2, maxIn: 12, hoodDecoy: .25, thiefBare: .4, depThief: .4, hacks: 2, flicker: .6 },
+  { name: "Mediodía", start: 13 * 3600, dur: 110, spawn: [3.2, 5.5], thieves: 2, restock: 2, maxIn: 8, hoodDecoy: .1, thiefBare: 0, depThief: .5, hacks: 1, flicker: 0 },
+  { name: "Hora pico", start: 18.5 * 3600, dur: 130, spawn: [2, 3.8], thieves: 3, restock: 2, maxIn: 12, hoodDecoy: .15, thiefBare: .15, depThief: .4, hacks: 2, flicker: .6 },
 ];
 function levelCfg(i) {
   if (i < LEVELS.length) return LEVELS[i];
@@ -680,17 +682,22 @@ let people = [], nextId = 1, trackSeq = 1;
 
 function makeLook(gender, role, cfg) {
   const L = { skin: pick(SKIN), hair: pick(HAIR), shirt: pick(SHIRT), pants: pick(PANTS), shoes: "#191919" };
-  L.hairStyle = gender === "M" ? pick(["largo", "largo", "cola", "rodete", "melena"]) : pick(["corto", "corto", "rapado", "corto"]);
-  if (gender === "H" && Math.random() < .2) L.beard = true;
-  if (gender === "M" && role === "cliente" && Math.random() < .35) L.dress = pick(DRESS);
+  // Mujeres: pelo largo, cola, rodete o melena, aros y labios pintados; muchas con vestido.
+  // Hombres: pelo corto y hombros más anchos; varios con barba.
+  L.hairStyle = gender === "M" ? pick(["largo", "largo", "largo", "melena", "cola"]) : pick(["corto", "corto", "rapado", "corto"]);
+  if (gender === "M" && L.hair === "#8a8a8a") L.hair = pick(["#3b2618", "#6b4423", "#a8743a", "#d8b46a"]);
+  if (gender === "H" && Math.random() < .35) L.beard = true;
+  if (gender === "M") { L.earrings = true; L.lips = true; }
+  if (gender === "M" && role === "cliente" && Math.random() < .5) L.dress = pick(DRESS);
   if (role === "empleado") { L.vest = true; L.shirt = "#2b3238"; L.pants = "#232a30"; }
   if (role === "ladron") {
-    L.hoodie = pick(HOODIE); L.pants = pick(["#1f2a33", "#2c3644", "#3b3b3b"]);
-    if (Math.random() >= cfg.thiefBare) L.hood = true;
-    if (Math.random() < .4) L.glasses = true;
-    if (!L.hood && Math.random() < .5) L.cap = "#1d1d1d";
+    // Ladrón: buzo oscuro con capucha, tapabocas negro, anteojos negros y mochila.
+    L.hoodie = pick(HOODIE); L.pants = pick(["#1f2a33", "#2c3644", "#3b3b3b"]); L.dress = null;
+    if (Math.random() >= cfg.thiefBare) L.hood = true; else L.cap = "#1d1d1d";
+    L.mask = true; L.backpack = true;
+    if (Math.random() < .7) L.glasses = true;
   }
-  if (role === "cliente" && Math.random() < cfg.hoodDecoy) { L.hoodie = pick(HOODIE); L.hood = true; L.dress = null; }
+  if (role === "cliente" && Math.random() < cfg.hoodDecoy) { L.hoodie = pick(["#b33a3a", "#2f6f4f", "#c47b3a", "#5a6fb0"]); L.hood = true; L.dress = null; }
   if (role === "cliente" && !L.hood && Math.random() < .12) L.cap = pick(["#b33a3a", "#2f4f6f", "#e3e0d6"]);
   return L;
 }
@@ -1901,9 +1908,11 @@ function personParts(p, isMannequin) {
     parts.push(cham(vAdd(foot, vAdd(vMul(F, .045 * s), [0, -.025 * s, 0])), R, U, F, .055 * s, .12 * s, .05 * s, .1 * s, .035 * s, shoe, null, .55));
     if (!isMannequin) box(vAdd(foot, vAdd(vMul(F, .045 * s), [0, -.055 * s, 0])), .058, .006, .122, "#e3e6e2");
   }
-  blob(at(0, .9, 0), .175, .11, .17, .105, .075, pants);
+  const fem = p.gender === "M";
+  blob(at(0, .9, 0), fem ? .19 : .17, .11, fem ? .18 : .165, .105, .075, pants);
   // torso con hombros más anchos que la cintura, ropa encima y cuello
-  blob(at(0, 1.17, 0), .155, .1, .205, .115, .29, L.dress || torso, .62);
+  blob(at(0, 1.17, 0), fem ? .15 : .16, .1, fem ? .175 : .22, fem ? .11 : .118, .29, L.dress || torso, .62);
+  if (L.backpack) parts.push(cham(at(0, 1.2, -.17), R, U, F, .14 * s, .06 * s, .13 * s, .055 * s, .17 * s, "#22262a", null, .6));
   if (L.dress) blob(at(0, .72, 0), .24, .18, .16, .12, .25, L.dress, .7);
   if (L.hoodie) box(at(0, 1.0, .112), .1, .045, .008, darker(torso, .72));
   if (!L.hoodie && !L.police && !L.vest && !isMannequin) box(at(0, 1.455, .095), .06, .012, .03, darker(L.dress || torso, .8));
@@ -1925,10 +1934,10 @@ function personParts(p, isMannequin) {
     else if (carryBox) { pitch = .9; bend = .8; spread = .02; }
     else if (reach && sg > 0) { const up = Math.sin(Math.min(1, (p.tt || 0) / .45) * Math.PI / 2); pitch = .3 + 1.5 * up; bend = .1; spread = .05; }
     else if (p.anim === "pay" && sg > 0) { pitch = 1.0; bend = .5; }
-    const sh = at(sg * .225, 1.42, 0);
+    const sh = at(sg * (fem ? .2 : .235), 1.42, 0);
     const elbow = vAdd(sh, vMul(dir(pitch, sg, spread), .28 * s));
     const hand = vAdd(elbow, vMul(dir(pitch + bend, sg, spread * .5), .26 * s));
-    blob(at(sg * .2, 1.41, 0), .065, .07, .055, .06, .05, sleeve);
+    blob(at(sg * (fem ? .18 : .21), 1.41, 0), .065, .07, .055, .06, .05, sleeve);
     limb(sh, elbow, .105, .09, sleeve); limb(elbow, hand, .085, .072, longSleeve ? sleeve : skin);
     parts.push(cham(hand, R, U, F, .036 * s, .03 * s, .03 * s, .026 * s, .04 * s, skin, null, .5));
     hands[sg] = hand;
@@ -1961,13 +1970,17 @@ function personParts(p, isMannequin) {
       else { face(sg * .036, .014, .016, .014, "#f4f1ea"); face(sg * .036 + .004, .012, .009, .011, "#1d1410"); }
       face(sg * .036, .042, .02, .005, darker(L.hair, .9));
     }
-    face(0, -.052, .03, .006, "#7a3a2a");
+    face(0, -.052, L.lips ? .026 : .03, L.lips ? .009 : .006, L.lips ? "#c0303f" : "#7a3a2a");
+    if (L.lips) for (const sg of [-1, 1]) face(sg * .036, .03, .019, .004, "#1d1410");
     if (L.glasses) { for (const sg of [-1, 1]) face(sg * .036, .014, .024, .02, "#0d0d0d"); face(0, .018, .02, .004, "#0d0d0d"); }
     if (L.beard) face(0, -.065, .085, .04, L.hair);
+    if (L.mask) face(0, -.06, .1, .05, "#0b0b0b");
   };
   hblob(0, 0, 0, hx, hz, hx * .92, hz * .95, hy, skin, features, .62);
   hbox(0, -.012, hz + .012, .014, .02, .014, darker(skin, .9));
   for (const sg of [-1, 1]) hbox(sg * (hx + .006), -.005, -.005, .008, .028, .018, darker(skin, .92));
+  if (L.mask) { hblob(0, -.06, .006, hx + .01, hz + .012, hx + .008, hz + .01, .05, "#0b0b0b"); parts[parts.length - 1].d -= .08 * s; } // tapabocas: siempre por delante de la cara
+  if (L.earrings && !L.hood) for (const sg of [-1, 1]) hbox(sg * (hx + .014), -.04, 0, .009, .012, .009, "#ffd23f");
   const hs = L.hairStyle;
   if (L.hood) {
     hblob(0, .012, -.03, hx + .035, hz + .02, hx + .025, hz + .012, hy + .03, L.hoodie);
@@ -1977,9 +1990,10 @@ function personParts(p, isMannequin) {
     const y0 = hs === "rapado" ? .07 : .05;
     hblob(0, (y0 + hy + .022) / 2, -.006, hx + .014, hz + .012, hx + .008, hz + .006, (hy + .022 - y0) / 2, L.hair);
     hblob(0, -.01, -(hz * .55), hx + .012, hz * .5, hx + .012, hz * .5, hy * .62, L.hair);
-    if (hs === "largo") { hblob(0, -.1, -(hz * .7), hx + .022, hz * .45, hx + .022, hz * .45, .19, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .01), -.07, -.01, .012, .1, .05, L.hair); }
-    if (hs === "melena") { hblob(0, -.04, -(hz * .6), hx + .02, hz * .5, hx + .02, hz * .5, .11, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .01), -.03, -.01, .012, .07, .06, L.hair); }
-    if (hs === "cola") hblob(0, -.05, -(hz + .06), .03, .03, .022, .025, .09, L.hair);
+    // pelo largo bien visible también de frente: mechones a los costados de la cara hasta los hombros
+    if (hs === "largo") { hblob(0, -.12, -(hz * .7), hx + .03, hz * .5, hx + .024, hz * .45, .22, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .014), -.1, .0, .018, .15, .075, L.hair); }
+    if (hs === "melena") { hblob(0, -.05, -(hz * .6), hx + .024, hz * .5, hx + .024, hz * .5, .12, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .014), -.045, .0, .016, .09, .075, L.hair); }
+    if (hs === "cola") { hblob(0, -.08, -(hz + .06), .035, .035, .025, .03, .12, L.hair); for (const sg of [-1, 1]) hbox(sg * (hx + .012), -.02, .02, .012, .06, .05, L.hair); }
     if (hs === "rodete") hblob(0, hy + .04, -.045, .05, .05, .045, .045, .04, L.hair);
   }
   if (L.police) {
@@ -2434,6 +2448,7 @@ const INTRO = [
   { who: "bot", panel: "steps", text: "Para lograrlo hago cuatro cosas todo el día: detecto a cada persona, la sigo entre cámaras, sé en qué zona está y aviso si pasa algo raro." },
   { who: "owner", text: "¿Y si alguien me roba?" },
   { who: "tech", text: "Si ves a alguien sospechoso lo marcás como ladrón y llamamos a la policía. Pero ojo: acusar a un cliente inocente sale caro." },
+  { who: "bot", text: "Los ladrones se reconocen fácil: buzo oscuro con capucha, tapabocas negro y mochila. Y agarran cosas sin canasto." },
   { who: "bot", text: "Hoy vas a hacer mi trabajo para ver cómo es. Yo te voy guiando paso a paso. Empecemos por las zonas del local." },
 ];
 const PRE = {
@@ -2446,7 +2461,7 @@ const PRE = {
   ],
   2: [
     { who: "owner", text: "Llegó la hora pico. Es cuando más vendo… y cuando más me roban." },
-    { who: "tech", text: "Hay más gente y algunos ladrones ya no usan capucha. Fijate en lo que hacen, no solo en cómo se visten." },
+    { who: "tech", text: "Hay más gente y algunos ladrones cambian la capucha por una gorra. Fijate en el tapabocas, la mochila y en lo que hacen." },
     { who: "bot", text: "Y si se corta internet, tranqui: guardo cada visita en el disco del Cerebro y la mando cuando vuelve la conexión." },
   ],
 };
