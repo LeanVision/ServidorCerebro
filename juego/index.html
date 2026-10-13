@@ -822,10 +822,16 @@ function updatePerson(p, dt) {
   }
 }
 
-// Caja de verdad (en px de pantalla de la cámara actual) que se usa para el IoU.
+// Caja de verdad (en px de pantalla de la cámara actual) que se usa para el IoU:
+// se proyectan la cabeza, los hombros y los pies según hacia dónde mira la persona.
 function personBox(p) {
-  const f = proj(p.x, 0, p.z), t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
-  return { x: f.x - 23 * s, y: f.y - 172 * s, w: 46 * s, h: 175 * s };
+  const s = p.h / 1.75, fx = p.fx || 0, fz = p.fz == null ? -1 : p.fz, rx = fz, rz = -fx;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const take = (a, b, y) => { const q = proj(p.x + (rx * a + fx * b) * s, y, p.z + (rz * a + fz * b) * s); if (q.x < x0) x0 = q.x; if (q.x > x1) x1 = q.x; if (q.y < y0) y0 = q.y; if (q.y > y1) y1 = q.y; };
+  take(0, 0, p.h + .02 * s);
+  for (const [a, b] of [[.27, 0], [-.27, 0], [0, .14], [0, -.14]]) take(a, b, 1.43 * s);
+  for (const [a, b] of [[.12, 0], [-.12, 0], [0, .16], [0, -.1]]) take(a, b, 0);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 function iou(a, b) {
   const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
@@ -1769,117 +1775,179 @@ function drawCamProp(c) {
   const p = P(c.x, c.y - .05, c.z); if (p.d > .5) { ctx.fillStyle = Math.floor(nowT * 2) % 2 ? "#ff3b30" : "#5a1410"; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.5, 30 / p.d), 0, Math.PI * 2); ctx.fill(); }
 }
 
-// Figura humana en unidades locales (pies en 0, cabeza en −170).
 function rr(x, y, w, h, r, c) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = c; ctx.fill(); }
 function circ(x, y, r, c) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); }
-function drawFigure(p, mannequinFig, back, reachDir) {
-  const L = p.look, walk = p.moving ? Math.sin(p.phase) : 0;
-  ctx.beginPath(); ctx.ellipse(0, 0, 24, 7, 0, 0, Math.PI * 2); ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fill();
-  if (mannequinFig) {
-    ctx.beginPath(); ctx.ellipse(0, 0, 20, 5, 0, 0, Math.PI * 2); ctx.fillStyle = "#9aa3a5"; ctx.fill();
-    rr(-2, -40, 4, 40, 2, "#7c8486");
-  }
-  const torso = L.hoodie || L.shirt;
-  const lift1 = Math.max(0, walk) * 7, lift2 = Math.max(0, -walk) * 7;
-  const legC = mannequinFig ? L.skin : L.pants;
-  rr(-12, -84, 10, 84 - lift1 - (mannequinFig ? 40 : 0), 3, legC);
-  rr(2, -84, 10, 84 - lift2 - (mannequinFig ? 40 : 0), 3, legC);
-  if (!mannequinFig) { rr(-13, -7 - lift1, 12, 7, 2, L.shoes); rr(1, -7 - lift2, 12, 7, 2, L.shoes); }
-  const hx = p.headTurn * 3.2;
-  if (!back && ["largo", "melena"].includes(L.hairStyle) && !L.hood) rr(-15 + hx, -170, 30, L.hairStyle === "largo" ? 44 : 30, 9, L.hair);
-  if (L.dress) { ctx.beginPath(); ctx.moveTo(-16, -138); ctx.lineTo(16, -138); ctx.lineTo(23, -58); ctx.lineTo(-23, -58); ctx.closePath(); ctx.fillStyle = L.dress; ctx.fill(); }
-  rr(-18, -143, 36, 64, 9, L.dress || torso);
-  if (L.hoodie && !back) rr(-11, -112, 22, 12, 4, "rgba(0,0,0,.22)");
-  if (L.police) {
-    rr(-18, -88, 36, 5, 1, "#0d0d0d");
-    if (back) { ctx.font = '700 8.5px "Chakra Petch", sans-serif'; ctx.textAlign = "center"; ctx.fillStyle = "#e9eef0"; ctx.fillText("POLICÍA", 0, -118); ctx.textAlign = "left"; }
-    else { circ(-9, -127, 3.4, "#f2c94c"); rr(4, -131, 9, 3, 1, "#c9d1d4"); }
-  }
-  if (L.vest) {
-    if (back) rr(-17, -141, 34, 56, 7, "#ff7a1a");
-    else { rr(-17, -141, 13, 56, 6, "#ff7a1a"); rr(4, -141, 13, 56, 6, "#ff7a1a"); rr(-12, -132, 7, 5, 1, "#e9eef0"); }
-    rr(-17, -104, 34, 5, 1, "rgba(235,245,248,.9)");
-  }
-  const swing = walk * .38;
-  const arm = (side, ang, len = 56) => {
-    ctx.save(); ctx.translate(side * 20, -138); ctx.rotate(ang);
-    rr(-5, 0, 10, len, 5, L.dress && !L.hoodie ? L.skin : torso); circ(0, len, 5, L.skin);
-    ctx.restore();
+// Personas en 3D low-poly: cada parte del cuerpo es un prisma articulado en coordenadas del mundo,
+// así que se ven bien desde cualquier cámara (de frente, de espalda, de costado y desde arriba).
+const vAdd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const vSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vMul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const vDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vNorm = a => { const n = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
+const LIGHT = vNorm([-0.35, 0.85, -0.45]);
+const shadeCache = new Map();
+function shade(hex, k) {
+  const key = hex + (k * 100 | 0);
+  let s = shadeCache.get(key); if (s) return s;
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  s = `rgb(${Math.min(255, r * k) | 0},${Math.min(255, g * k) | 0},${Math.min(255, b * k) | 0})`;
+  if (shadeCache.size > 5000) shadeCache.clear();
+  shadeCache.set(key, s); return s;
+}
+const darker = (hex, k) => { const n = parseInt(hex.slice(1), 16); const c = v => Math.round(v * k).toString(16).padStart(2, "0"); return `#${c(n >> 16)}${c((n >> 8) & 255)}${c(n & 255)}`; };
+// Prisma con centro c y ejes u (derecha), v (arriba), w (frente). Abajo mide hx0×hz0, arriba hx1×hz1.
+const PRISM_FACES = [[0, 1, 2, 3, 1, -1], [4, 5, 6, 7, 1, 1], [3, 2, 6, 7, 2, 1], [0, 1, 5, 4, 2, -1], [1, 2, 6, 5, 0, 1], [0, 3, 7, 4, 0, -1]];
+function prism(c, u, v, w, hx0, hz0, hx1, hz1, hy, color, after) {
+  const corner = (sx, sy, sz) => { const hx = sy < 0 ? hx0 : hx1, hz = sy < 0 ? hz0 : hz1; return [c[0] + u[0] * sx * hx + v[0] * sy * hy + w[0] * sz * hz, c[1] + u[1] * sx * hx + v[1] * sy * hy + w[1] * sz * hz, c[2] + u[2] * sx * hx + v[2] * sy * hy + w[2] * sz * hz]; };
+  return {
+    d: camSpace(CAM, c[0], c[1], c[2])[2],
+    draw() {
+      const P8 = [corner(-1, -1, -1), corner(1, -1, -1), corner(1, -1, 1), corner(-1, -1, 1), corner(-1, 1, -1), corner(1, 1, -1), corner(1, 1, 1), corner(-1, 1, 1)];
+      const axes = [u, v, w];
+      let frontVisible = false;
+      for (const f of PRISM_FACES) {
+        const n = vMul(axes[f[4]], f[5]);
+        const fc = vMul(vAdd(vAdd(P8[f[0]], P8[f[1]]), vAdd(P8[f[2]], P8[f[3]])), .25);
+        if (vDot(n, vSub([CAM.x, CAM.y, CAM.z], fc)) <= 0) continue;
+        if (f[4] === 2 && f[5] === 1) frontVisible = true;
+        const col = shade(color, .58 + .48 * Math.max(0, vDot(n, LIGHT)));
+        const pts = clipPoly([P8[f[0]], P8[f[1]], P8[f[2]], P8[f[3]]]);
+        if (pts.length < 3) continue;
+        ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = .7; ctx.stroke();
+      }
+      if (after && frontVisible) after();
+    },
   };
-  const reach = p.anim === "reach" || p.anim === "stock";
-  if (p.cuffed) {
-    arm(-1, -.2, 50); arm(1, .2, 50);
-    ctx.strokeStyle = "#c9d1d4"; ctx.lineWidth = 2.2;
-    ctx.beginPath(); ctx.arc(-4, -88, 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(4, -88, 3.5, 0, Math.PI * 2); ctx.stroke();
-  } else if (p.box && !p.cashier && (p.moving || p.anim === "stock")) {
-    arm(-1, -.55, 46); arm(1, .55, 46);
-    rr(-20, -122, 40, 30, 3, "#b98b55"); rr(-20, -110, 40, 4, 1, "#d8c49a");
-  } else if (reach) {
-    const t = p.tt || 0, up = Math.sin(Math.min(1, t / .45) * Math.PI / 2);
-    const aL = reachDir < 0 ? .2 + 2.2 * up : .08, aR = reachDir > 0 ? -(.2 + 2.2 * up) : -.08;
-    arm(-1, aL, 56); arm(1, aR, 56);
-    if (p.handItem) {
-      const a = reachDir > 0 ? aR : aL, sx = reachDir > 0 ? 20 : -20;
-      rr(sx - 56 * Math.sin(a) - 5, -138 + 56 * Math.cos(a) - 6, 10, 12, 2, p.handItem);
-    }
-  } else if (p.anim === "pay") {
-    arm(-1, .1); arm(1, -.9, 50);
-  } else {
-    arm(-1, .08 + swing); arm(1, -.08 - swing);
+}
+
+function personParts(p, isMannequin) {
+  const L = p.look, s = p.h / 1.75, parts = [];
+  const F = vNorm([p.fx || 0, 0, p.fz == null ? -1 : p.fz]), R = [F[2], 0, -F[0]], U = [0, 1, 0];
+  const at = (x, y, z) => [p.x + R[0] * x * s + F[0] * z * s, y * s, p.z + R[2] * x * s + F[2] * z * s];
+  const box = (c, hx, hy, hz, color, after, ax = R, ay = U, az = F) => parts.push(prism(c, ax, ay, az, hx * s, hz * s, hx * s, hz * s, hy * s, color, after));
+  const limb = (A, B, t, color) => {
+    const v = vNorm(vSub(B, A));
+    let u = vSub(R, vMul(v, vDot(R, v))); if (Math.hypot(...u) < 1e-3) u = F;
+    u = vNorm(u); const w = vCross(u, v), half = Math.hypot(...vSub(B, A)) / 2;
+    parts.push(prism(vMul(vAdd(A, B), .5), u, v, w, t * s / 2, t * s / 2, t * s / 2, t * s / 2, half, color));
+  };
+  const moving = p.moving && !isMannequin, ph = p.phase || 0;
+  const skin = L.skin, pants = isMannequin ? skin : L.pants, torso = L.hoodie || L.shirt;
+  const sleeve = L.dress && !L.hoodie ? skin : torso;
+  const longSleeve = L.hoodie || L.police || L.vest || isMannequin || (p.id % 2 === 0);
+  const dir = (pitch, side, spread) => vNorm(vAdd(vAdd(vMul(F, Math.sin(pitch)), vMul(U, -Math.cos(pitch))), vMul(R, side * spread)));
+
+  // piernas y zapatos
+  for (const sg of [-1, 1]) {
+    const off = sg > 0 ? Math.PI : 0;
+    const a = moving ? .5 * Math.sin(ph + off) : 0;
+    const bend = moving ? .95 * Math.max(0, Math.sin(ph + off + 1.3)) : 0;
+    const hip = at(sg * .09, .88, 0);
+    const knee = vAdd(hip, vMul(dir(a, 0, 0), .42 * s));
+    const foot = vAdd(knee, vMul(dir(a - bend, 0, 0), .42 * s)); foot[1] = Math.max(foot[1], .05 * s);
+    limb(hip, knee, .15, pants); limb(knee, foot, .12, pants);
+    box(vAdd(foot, vAdd(vMul(F, .04 * s), [0, -.015 * s, 0])), .055, .035, .12, isMannequin ? skin : L.shoes);
   }
+  box(at(0, .9, 0), .17, .07, .11, pants);
+  // torso, ropa encima y cuello
+  parts.push(prism(at(0, 1.17, 0), R, U, F, .155 * s, .1 * s, .205 * s, .115 * s, .29 * s, L.dress || torso));
+  if (L.dress) parts.push(prism(at(0, .72, 0), R, U, F, .23 * s, .17 * s, .16 * s, .12 * s, .25 * s, L.dress));
+  if (L.hoodie) box(at(0, 1.0, .108), .1, .045, .008, darker(torso, .72));
+  if (L.vest) {
+    parts.push(prism(at(0, 1.2, 0), R, U, F, .168 * s, .112 * s, .214 * s, .126 * s, .24 * s, "#ff7a1a"));
+    parts.push(prism(at(0, 1.07, 0), R, U, F, .176 * s, .118 * s, .183 * s, .121 * s, .018 * s, "#e9eef0"));
+    box(at(-.1, 1.33, .13), .03, .02, .006, "#e9eef0");
+  }
+  if (L.police) { parts.push(prism(at(0, .935, 0), R, U, F, .158 * s, .104 * s, .16 * s, .105 * s, .022 * s, "#0d0d0d")); box(at(-.09, 1.31, .118), .025, .025, .006, "#f2c94c"); }
+  box(at(0, 1.5, 0), .045, .04, .045, skin);
+
+  // brazos (contrarios a las piernas) y lo que llevan en las manos
+  const reach = p.anim === "reach" || p.anim === "stock", hands = {};
+  const carryBox = p.box && !p.cashier && (p.moving || p.anim === "stock");
+  for (const sg of [-1, 1]) {
+    const off = sg > 0 ? 0 : Math.PI;
+    let pitch = moving ? .45 * Math.sin(ph + off) : .04, bend = .25, spread = .1;
+    if (p.cuffed) { pitch = -.5; bend = -.05; spread = -.45; }
+    else if (carryBox) { pitch = .9; bend = .8; spread = .02; }
+    else if (reach && sg > 0) { const up = Math.sin(Math.min(1, (p.tt || 0) / .45) * Math.PI / 2); pitch = .3 + 1.5 * up; bend = .1; spread = .05; }
+    else if (p.anim === "pay" && sg > 0) { pitch = 1.0; bend = .5; }
+    const sh = at(sg * .23, 1.43, 0);
+    const elbow = vAdd(sh, vMul(dir(pitch, sg, spread), .28 * s));
+    const hand = vAdd(elbow, vMul(dir(pitch + bend, sg, spread * .5), .26 * s));
+    limb(sh, elbow, .1, sleeve); limb(elbow, hand, .085, longSleeve ? sleeve : skin);
+    box(hand, .036, .036, .036, skin);
+    hands[sg] = hand;
+  }
+  const hl = hands[-1], hr = hands[1];
   if (p.basket) {
-    const bx = -34 + (p.moving ? swing * 12 : 0);
-    ctx.strokeStyle = "#7a1f1f"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bx + 8, -86, 9, Math.PI, 0); ctx.stroke();
-    rr(bx - 4, -86, 24, 16, 3, "#c23b3b");
-    for (let i = 0; i < Math.min(4, p.basketItems); i++) rr(bx - 2 + i * 5, -92, 5, 7, 1, PROD_COLORS[(p.id + i) % PROD_COLORS.length]);
+    const c = vAdd(hl, [0, -.1 * s, 0]);
+    box(c, .14, .06, .09, "#c23b3b");
+    if (p.basketItems) box(vAdd(c, [0, .065 * s, 0]), .1, .015, .06, PROD_COLORS[p.id % PROD_COLORS.length]);
   }
-  if (p.bag) { rr(24, -92, 16, 22, 2, "#d9c49c"); ctx.strokeStyle = "#8a7550"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(32, -92, 5, Math.PI, 0); ctx.stroke(); }
-  rr(-5, -151, 10, 10, 3, L.skin);
-  if (L.hood) circ(hx * .5, -157, 16.5, L.hoodie);
-  circ(hx, -158, 12, L.skin);
+  if (p.bag) box(vAdd(hr, [0, -.13 * s, 0]), .09, .12, .045, "#d9c49c");
+  if (p.handItem) box(vAdd(hr, vMul(F, .03 * s)), .045, .045, .045, p.handItem);
+  if (p.cuffed) box(vMul(vAdd(hl, hr), .5), .04, .02, .02, "#c9d1d4");
+  if (carryBox) { box(at(0, 1.2, .3), .2, .14, .15, "#b98b55"); box(at(0, 1.345, .3), .2, .006, .03, "#d8c49a"); }
+  if (isMannequin) box(at(0, .015, 0), .2, .015, .2, "#9aa3a5");
+
+  // cabeza: gira con headTurn; los rasgos se pintan sobre la cara de adelante
+  const yaw = (p.headTurn || 0) * .5, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const HF = vNorm([F[0] * cy + R[0] * sy, 0, F[2] * cy + R[2] * sy]), HR = [HF[2], 0, -HF[0]];
+  const hc = at(0, 1.635, .01), hx = .1, hy = .11, hz = .105;
+  const hp = (x, y, z) => [hc[0] + (HR[0] * x + HF[0] * z) * s, hc[1] + y * s, hc[2] + (HR[2] * x + HF[2] * z) * s];
+  const hbox = (x, y, z, ex, ey, ez, color, after) => parts.push(prism(hp(x, y, z), HR, U, HF, ex * s, ez * s, ex * s, ez * s, ey * s, color, after));
+  const face = (x, y, ex, ey, col) => poly(clipPoly([hp(x - ex, y - ey, hz + .003), hp(x + ex, y - ey, hz + .003), hp(x + ex, y + ey, hz + .003), hp(x - ex, y + ey, hz + .003)]), col);
+  const features = () => {
+    if (isMannequin) return;
+    const blink = (nowT * .8 + p.id * .37) % 3.6 < .12;
+    for (const sg of [-1, 1]) face(sg * .038, .016, .016, blink ? .004 : .016, "#1d1410");
+    face(0, -.048, .03, .006, "#7a3a2a");
+    if (L.glasses) face(0, .016, .085, .017, "#0d0d0d");
+    if (L.beard) face(0, -.065, .09, .04, L.hair);
+  };
+  hbox(0, 0, 0, hx, hy, hz, skin, features);
+  const hs = L.hairStyle;
   if (L.hood) {
-    if (back) circ(hx * .5, -158, 15.5, L.hoodie);
-    else { ctx.beginPath(); ctx.arc(hx * .5, -157, 16.5, Math.PI * 1.02, Math.PI * 1.98); ctx.lineWidth = 6; ctx.strokeStyle = L.hoodie; ctx.stroke(); }
-    if (p.gender === "M" && !back) { rr(-13 + hx, -152, 4, 16, 2, L.hair); rr(9 + hx, -152, 4, 16, 2, L.hair); }
-  } else if (!mannequinFig) {
-    const hs = L.hairStyle;
-    if (back) {
-      circ(hx, -159, 12.6, L.hair);
-      if (hs === "largo") rr(-13 + hx, -162, 26, 40, 9, L.hair);
-      if (hs === "melena") rr(-13 + hx, -162, 26, 24, 8, L.hair);
-      if (hs === "cola") rr(-3 + hx, -158, 6, 26, 3, L.hair);
-      if (hs === "rodete") circ(hx, -164, 7, L.hair);
-    } else {
-      ctx.beginPath(); ctx.arc(hx, -159, hs === "rapado" ? 12.2 : 12.8, Math.PI * (hs === "rapado" ? 1.1 : 1.0), Math.PI * (hs === "rapado" ? 1.9 : 2.0)); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill();
-      if (hs === "cola") rr(9 + hx, -166, 6, 22, 3, L.hair);
-      if (hs === "rodete") circ(hx, -172, 6.5, L.hair);
-      if (hs === "largo" || hs === "melena") { rr(-13 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); rr(7 + hx, -166, 6, hs === "largo" ? 30 : 20, 3, L.hair); }
-      if (L.beard) { ctx.beginPath(); ctx.arc(hx, -154, 9.5, Math.PI * .05, Math.PI * .95); ctx.closePath(); ctx.fillStyle = L.hair; ctx.fill(); }
-      ctx.fillStyle = "rgba(20,15,12,.75)"; ctx.fillRect(hx - 5 + p.headTurn * 1.5, -160, 2.4, 2.4); ctx.fillRect(hx + 3 + p.headTurn * 1.5, -160, 2.4, 2.4);
-    }
+    hbox(0, .012, -.025, hx + .032, hy + .03, hz + .012, L.hoodie);
+    if (p.gender === "M") for (const sg of [-1, 1]) hbox(sg * (hx - .012), -.06, hz + .004, .012, .05, .005, L.hair);
+  } else if (!isMannequin && hs !== "none") {
+    const top = hs === "rapado" ? .007 : .018;
+    hbox(0, hy + top * .7, -.004, hx + .012, top, hz + .014, L.hair);
+    hbox(0, .02, -(hz + .01), hx + .012, hy * .8, .012, L.hair);
+    for (const sg of [-1, 1]) hbox(sg * (hx + .008), .045, -.02, .01, .065, hz * .8, L.hair);
+    if (hs !== "rapado") hbox(0, hy - .025, hz + .006, hx + .008, .028, .008, L.hair);
+    if (hs === "largo") { hbox(0, -.09, -(hz + .02), hx + .02, .2, .025, L.hair); for (const sg of [-1, 1]) hbox(sg * (hx + .012), -.07, 0, .012, .1, .05, L.hair); }
+    if (hs === "melena") { hbox(0, -.03, -(hz + .02), hx + .02, .12, .025, L.hair); for (const sg of [-1, 1]) hbox(sg * (hx + .012), -.03, 0, .012, .07, .06, L.hair); }
+    if (hs === "cola") hbox(0, -.05, -(hz + .06), .03, .09, .03, L.hair);
+    if (hs === "rodete") hbox(0, hy + .04, -.045, .05, .04, .05, L.hair);
   }
   if (L.police) {
-    rr(hx - 13, -178, 26, 12, 3, "#172739"); rr(hx - 13, -169, 26, 3, 1, "#f2c94c");
-    if (!back) { rr(hx - 12 + p.headTurn * 3, -167, 24, 4, 2, "#0b1420"); circ(hx, -174, 2.6, "#f2c94c"); }
+    hbox(0, hy + .03, -.005, hx + .02, .04, hz + .02, "#172739");
+    hbox(0, hy + .005, -.005, hx + .022, .012, hz + .022, "#f2c94c");
+    hbox(0, hy - .005, hz + .07, hx * .85, .008, .07, "#0b1420");
+  } else if (L.cap && !L.hood) {
+    hbox(0, hy + .022, -.005, hx + .016, .03, hz + .016, L.cap);
+    hbox(0, hy - .002, hz + .075, hx * .85, .008, .075, L.cap);
   }
-  if (L.cap && !L.hood) { ctx.beginPath(); ctx.arc(hx, -161, 13, Math.PI, 0); ctx.closePath(); ctx.fillStyle = L.cap; ctx.fill(); if (!back) rr(hx - 4 + p.headTurn * 4, -163, 18, 4, 2, L.cap); }
-  if (L.glasses && !back) rr(hx - 8 + p.headTurn * 1.5, -162, 16, 5, 2, "#0d0d0d");
+  return parts;
 }
 
 function drawPerson(p, portal, isMannequin) {
   const f = proj(p.x, 0, p.z); if (f.d < .35) return;
-  const t = proj(p.x, p.h, p.z), s = (f.y - t.y) / 170;
-  const back = p.fx * CAM.fwd.x + p.fz * CAM.fwd.z > .25;
-  let reachDir = 1;
-  const look = p.place && p.place.look;
-  if (look) { const a = proj(p.x, 1, p.z), b = proj(p.x + look * .5, 1, p.z); reachDir = b.x >= a.x ? 1 : -1; }
+  const s = p.h / 1.75;
   ctx.save();
   if (portal && portal !== "same") {
     const q = clipPoly(PORTALS[portal]); if (q.length < 3) { ctx.restore(); return; }
     ctx.beginPath(); q.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath(); ctx.clip();
   }
-  ctx.translate(f.x, f.y); ctx.scale(s, s);
-  drawFigure(p, isMannequin, back, reachDir);
+  const sh = [];
+  for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; sh.push([p.x + Math.cos(a) * .3 * s, .004, p.z + Math.sin(a) * .25 * s]); }
+  poly(clipPoly(sh), "rgba(0,0,0,.25)");
+  const parts = personParts(p, isMannequin);
+  parts.sort((a, b) => b.d - a.d);
+  for (const q of parts) q.draw();
   ctx.restore();
 }
 
