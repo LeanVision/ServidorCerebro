@@ -327,6 +327,24 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 }
 @media (max-width:900px){.skills{width:100%!important}}
 .guide li{grid-template-columns:76px minmax(0,1fr)}
+
+/* Pantalla final */
+#outro{position:fixed;z-index:50;background:rgba(6,10,11,.9);padding-block:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-bottom,0px))}
+#outro .sheet{width:min(640px,100%);max-height:none;overflow:visible;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+.outstats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.outstats div{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;background:var(--raise)}
+.outstats span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.outstats strong{font-family:var(--f-mono);font-size:20px;font-variant-numeric:tabular-nums}
+.outlinks{border:1px solid #2c4a7a;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;background:rgba(22,38,74,.35)}
+.outlinks h3{margin:0;font-family:var(--f-display);font-size:18px;font-weight:600;color:#f2f5f2}
+.lvlinks{display:flex;flex-wrap:wrap;gap:8px}
+.lvlink{display:inline-flex;align-items:center;gap:10px;border:1px solid #5b93ff;border-radius:8px;padding:8px 14px 8px 10px;color:#cfe0ff;text-decoration:none;background:var(--panel)}
+.lvlink:hover{background:#16264a}
+.lvlink svg{width:24px;height:24px;flex:none}
+.lvlink span{display:flex;flex-direction:column;line-height:1.15}
+.lvlink small{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lvlink b{font-family:var(--f-mono);font-size:14px;font-weight:600}
+@media (max-width:560px){.outstats strong{font-size:16px}#outro .sheet{padding:16px}}
 </style>
 
 <div class="app">
@@ -427,6 +445,10 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 
           <div class="overlay" id="report" hidden>
             <div class="sheet" id="reportBody"></div>
+          </div>
+
+          <div class="overlay" id="outro" hidden>
+            <div class="sheet" id="outroBody"></div>
           </div>
         </div>
       </div>
@@ -2561,6 +2583,21 @@ const PRE = {
     { who: "bot", text: "Y si se corta internet, tranqui: guardo cada visita en el disco del Cerebro y la mando cuando vuelve la conexión." },
   ],
 };
+// Cierre del juego: después de la Liquidación 2 se cuenta cómo se instala y se usa LeanVision de verdad.
+const FINALE_LEVEL = LEVELS.length + 1; // índice de «Liquidación 2»
+const FINALE = [
+  { who: "owner", text: "¡Sobrevivimos a la liquidación! Y por primera vez sé qué pasó adentro de mi local." },
+  { who: "tech", text: "Eso es LeanVision: las cámaras que ya tenías, convertidas en datos para decidir." },
+  { who: "tech", panel: "install", text: "Para instalarlo no cambiás nada: ponemos el Cerebro en tu local, lo conectamos a tus cámaras y lo das de alta en la app con un código de activación." },
+  { who: "bot", text: "Cada Cerebro tiene su propia credencial. Si algún día lo desvinculás desde el panel, deja de mandar datos al instante." },
+  { who: "bot", text: "Y me actualizo sola: cuando el equipo mejora algo, el Cerebro lo baja y se reinicia sin que tengas que tocar nada." },
+  { who: "owner", text: "¿Y la privacidad de mis clientes?" },
+  { who: "bot", text: "Las imágenes se procesan en el local. A la nube viajan números: cuánta gente entró, por dónde caminó y cuánto tiempo se quedó." },
+  { who: "tech", text: "Como Lenna guarda una foto del mapa de calor cada 15 minutos, podés comparar este sábado con el anterior, o la mañana con la tarde." },
+  { who: "owner", text: "Me convencieron. ¿Cómo lo pongo en mi local?" },
+  { who: "tech", text: "Escribinos y lo vemos juntos. Te dejo nuestra web y nuestras redes." },
+  { who: "bot", text: "¡Gracias por hacer mi trabajo hoy! Si querés, seguimos con otra liquidación." },
+];
 const PRE_ENDLESS = [
   { who: "owner", text: "¡Arranca la liquidación! Se viene una avalancha de gente." },
   { who: "tech", text: "Mismo trabajo, más gente y más intentos de hackeo. Vos podés." },
@@ -2612,6 +2649,18 @@ function drawPanel(kind, time) {
       const v = Math.min(1, hot.reduce((a, [hx, hy, k]) => a + k * Math.exp(-((x - hx) ** 2 + (y - hy) ** 2 * 1.6) / 2.2), 0));
       B(180 + x * 10, 113 + y * 8, 9, 7, v < .08 ? "#16201f" : `hsl(${220 - 220 * Math.pow(v, .6)},90%,${30 + 25 * v}%)`);
     }
+  } else if (kind === "install") {
+    T("CÓMO SE INSTALA", 160, 26, 10, "#5b93ff");
+    const items = [["Instalamos el Cerebro", "una compu chica, en tu local"], ["Lo conectamos", "a las cámaras que ya tenés"], ["Lo activás", "con un código desde la app"], ["Mirás los datos", "en la app, desde el celular"]];
+    items.forEach(([a, b], i) => {
+      const y = 50 + i * 26, on = Math.floor(time * 1.2) % 4 === i;
+      B(36, y - 9, 18, 18, on ? "#2f6df0" : "#16264a"); T(String(i + 1), 45, y, 10, on ? "#ffffff" : "#5b93ff");
+      c.textAlign = "left"; T(a, 64, y - 4, 9); T(b, 64, y + 7, 8, "#c9d4d0", 400); c.textAlign = "center";
+    });
+    // el Cerebro: una placa con luces
+    B(232, 66, 52, 34, "#1e2327"); B(236, 70, 44, 26, "#14532d"); for (let k = 0; k < 3; k++) B(240 + k * 10, 74, 6, 6, "#9aa3a5");
+    B(268, 74, 8, 4, Math.sin(time * 6) > 0 ? "#43e08a" : "#16301f"); B(268, 82, 8, 4, "#5b93ff"); B(246, 86, 18, 6, "#2a3036");
+    T("Cerebro", 258, 110, 8, "#a9b8b4", 400);
   } else if (kind === "uses") {
     T("PARA QUÉ TE SIRVE", 160, 26, 10, "#5b93ff");
     const items = [["Personal", "cuánta gente poner en cada horario"], ["Promos", "dónde ubicarlas para que se vean"], ["Vidriera", "si atrae gente o pasa de largo"], ["Caja", "si la fila espanta clientes"]];
@@ -3033,12 +3082,52 @@ function showReport(R) {
   });
   box.addEventListener("pointerleave", () => { tip.hidden = true; });
   $("report").hidden = false; $("report").scrollTop = 0;
+  const finale = game.level === FINALE_LEVEL && !game.finaleSeen;
+  if (finale) $("btnNext").textContent = "Ver el cierre";
   $("btnNext").onclick = () => {
-    game.level++; $("report").hidden = true; saveHot();
+    $("report").hidden = true;
+    if (finale) { game.finaleSeen = true; saveHot(); playStory(FINALE, showOutro); return; }
+    game.level++; saveHot();
     playStory(PRE[game.level] || PRE_ENDLESS, enterSetup);
   };
   $("btnRetry").onclick = () => { game.score -= game.levelScore; $("report").hidden = true; enterSetup(); };
   syncTools(); updateHud(); saveHot();
+}
+// Pantalla final con la web y las redes de LeanVision. Los enlaces sin dirección no se muestran.
+const LV_LINKS = [
+  { kind: "web", label: "Web", text: "leanvision.ai", href: "https://leanvision.ai" },
+  { kind: "instagram", label: "Instagram", text: "", href: "" },
+  { kind: "linkedin", label: "LinkedIn", text: "", href: "" },
+];
+const LINK_ICON = {
+  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.5 3.8 5.5 3.8 9s-1.2 6.5-3.8 9c-2.6-2.5-3.8-5.5-3.8-9S9.4 5.5 12 3z"/>',
+  instagram: '<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor"/>',
+  linkedin: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 10.5V16M8 7.6v.1M11.5 16v-3.2c0-1.4.9-2.3 2.1-2.3s2 .9 2 2.3V16M11.5 10.5V16"/>',
+};
+function showOutro() {
+  game.state = "outro"; syncTools();
+  const links = LV_LINKS.filter(l => l.href).map(l => `<a class="lvlink" href="${l.href}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${LINK_ICON[l.kind] || LINK_ICON.web}</svg><span><small>${l.label}</small><b>${l.text}</b></span></a>`).join("");
+  $("outroBody").innerHTML = `
+    <div class="lockup">${LV_MARK}<div><b>LEAN VISION</b><span>ARTIFICIAL VISION</span></div></div>
+    <span class="eyebrow"><b>●</b> Fin del turno · Liquidación 2</span>
+    <h2>Gracias por jugar.</h2>
+    <p>Hoy fuiste las cámaras de Sofía: encuadraste personas, pintaste zonas y frenaste robos y hackeos. En un local de verdad eso lo hace Lenna sola, todo el día, y vos solo mirás los resultados en la app.</p>
+    <div class="outstats">
+      <div><span>Turnos jugados</span><strong>${game.level + 1}</strong></div>
+      <div><span>Puntaje total</span><strong>${game.score.toLocaleString("es-AR")}</strong></div>
+      <div><span>Récord</span><strong>${game.best.toLocaleString("es-AR")}</strong></div>
+    </div>
+    <section class="outlinks"><h3>¿Querés LeanVision en tu local?</h3><p>Escribinos por la web o por nuestras redes.</p><div class="lvlinks">${links}</div></section>
+    <div class="actions">
+      <button class="primary" id="btnMore">Seguir jugando</button>
+      <button class="ghost" id="btnAgain">Volver a empezar</button>
+    </div>`;
+  $("outro").hidden = false;
+  $("btnMore").onclick = () => { $("outro").hidden = true; game.level++; saveHot(); playStory(PRE_ENDLESS, enterSetup); };
+  $("btnAgain").onclick = () => {
+    $("outro").hidden = true; game.level = 0; game.score = 0; game.finaleSeen = false; saveHot();
+    game.state = "intro"; $("intro").hidden = false; syncTools(); updateHud();
+  };
 }
 function drawPlan(c) {
   const g = c.getContext("2d"), sx = c.width / STORE.w, sz = c.height / STORE.d;
