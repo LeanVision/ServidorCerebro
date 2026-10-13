@@ -226,7 +226,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 .coach canvas{width:52px;height:auto;aspect-ratio:40/44;image-rendering:pixelated;flex:none}
 .coach p{margin:0;background:rgba(7,11,13,.94);border:2px solid #43e08a;padding:8px 10px;font-family:var(--f-pixel);font-size:15px;line-height:1.3;color:#f2f5f2;display:flex;flex-direction:column;gap:2px}
 .coach b{font-weight:600;color:#43e08a;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
-@media (max-width:560px){.coach{max-width:86%;bottom:16%}.coach p{font-size:13px}.coach canvas{width:40px}}
+@media (max-width:560px){.coach{position:fixed;z-index:40;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom,0px));max-width:none}.coach p{font-size:13px;flex:1}.coach canvas{width:40px}}
 
 /* Reporte con formato de app */
 .apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
@@ -272,6 +272,9 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 .fact p{margin:0;font-size:13px;color:#d6e0dc}
 .perf{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
 .perf .letter{font-size:52px}
+
+.tutskip{align-self:flex-start;margin-top:4px;border:1px solid var(--line);background:transparent;color:var(--muted);font:12px var(--f-body);border-radius:6px;padding:3px 8px;cursor:pointer}
+.coach p{max-width:none}
 </style>
 
 <div class="app">
@@ -335,7 +338,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
 
           <div class="coach" id="coach" hidden role="status">
             <canvas id="coachCv" width="40" height="44" aria-hidden="true"></canvas>
-            <p><b>Cerebro</b><span id="coachText"></span></p>
+            <p><b id="coachWho">Lenna</b><span id="coachText"></span><button class="tutskip" id="tutSkip" hidden>Saltar tutorial</button></p>
           </div>
 
           <div class="story" id="story" hidden>
@@ -352,7 +355,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3vw,30px);l
             <div class="sheet">
               <span class="eyebrow"><b>●</b> REC · 3 cámaras · 4:3</span>
               <h2>Sos las cámaras del local.</h2>
-              <p>Sofía tiene una tienda de ropa y no sabe qué pasa adentro. Leo, técnico de LeanVision, y el Cerebro, el robot que procesa las cámaras, le van a mostrar todo lo que se puede medir. Durante el turno entran clientes, empleados y algún ladrón: encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Lo que no detectás no aparece en los datos de Sofía.</p>
+              <p>Sofía tiene una tienda de ropa y no sabe qué pasa adentro. Leo, técnico de LeanVision, y Lenna, la inteligencia artificial de LeanVision, le van a mostrar qué se puede medir con las cámaras que ya tiene y para qué le sirve. Durante el turno entran clientes, empleados y algún ladrón: encuadrá a cada persona, decí si es hombre o mujer y qué rol tiene. Lo que no detectás no aparece en los datos de Sofía.</p>
               <ol class="steps">
                 <li>Pintá las zonas del local sobre el piso.</li>
                 <li>Arrastrá un recuadro sobre cada persona que entra. Cambiá de cámara para ver todo.</li>
@@ -444,7 +447,7 @@ const deg = Math.PI / 180;
 const lookAt = (c, tx, tz) => { c.yaw = Math.atan2(tx - c.x, tz - c.z); return c; };
 const CAMS = [
   { id: 1, name: "Salón principal", short: "Salón", room: "salon", x: 5.8, y: 3.35, z: -1.9, yaw: -10 * deg, pitch: 27 * deg, f: 540 },
-  lookAt({ id: 2, name: "Caja y entrada", short: "Caja", room: "salon", x: 9.8, y: 3.35, z: 9.6, pitch: 30 * deg, f: 480 }, 3.2, 2.4),
+  lookAt({ id: 2, name: "Desde probadores", short: "Probadores", room: "salon", x: 2.0, y: 3.3, z: 11.7, pitch: 31 * deg, f: 470 }, 5.6, 3.0),
   lookAt({ id: 3, name: "Depósito", short: "Depósito", room: "dep", x: 6.2, y: 3.1, z: 15.8, pitch: 33 * deg, f: 400 }, 9.2, 12.8),
 ];
 for (const c of CAMS) {
@@ -537,7 +540,7 @@ const COUNTER = { x0: 7.5, x1: 8.3, z0: 2.6, z1: 5.4, h: 1.0 };
 const RACK = { x0: 6.6, x1: 8.6, z: 11.15 };
 const ISLAND = { x0: 3.4, x1: 5.2, z0: 1.0, z1: 1.9, h: .75 };
 const ISLAND_ITEMS = Array.from({ length: 10 }, (_, i) => ({ x: ISLAND.x0 + .12 + (i % 5) * .34, z: ISLAND.z0 + .15 + Math.floor(i / 5) * .38, c: PROD_COLORS[(i * 4) % PROD_COLORS.length] }));
-const MANNEQUIN_POS = { x: 0.75, z: 8.4 };
+const MANNEQUIN_POS = { x: 2.4, z: 1.7 }; // en la vidriera, cerca de la entrada
 // Depósito
 const PALLET = { x0: 7.3, x1: 8.4, z0: 13.6, z1: 14.7 };
 const SERVER = { x0: 6.1, x1: 6.75, z0: 12.5, z1: 13.15, h: 1.95 };
@@ -1469,7 +1472,7 @@ function frame(now) {
     if (game.qte) {
       game.qte.t += dt; renderQte();
       if (game.qte.t >= game.qte.limit) qteLose();
-    } else update(dt * (popFor ? .25 : fix ? .5 : 1));
+    } else update(dt * (popFor ? .25 : fix ? .5 : tutSlow() ? .3 : 1));
   } else if (game.state === "setup") {
     for (const p of people) p.headTurn = Math.sin(now / 1400 + p.id) * .5;
   }
@@ -1483,6 +1486,7 @@ function frame(now) {
   if (thumbTurn % 2 === 0) drawThumb(thumbTurn / 2);
   drawFix(nowT, dt);
   drawStory(nowT, dt);
+  tutTick(dt);
   drawCoach(nowT);
   if (popFor) placePopup();
   uiTick -= dt; if (uiTick <= 0) { uiTick = .3; syncCamUi(); }
@@ -1822,16 +1826,48 @@ function prism(c, u, v, w, hx0, hz0, hx1, hz1, hy, color, after) {
   };
 }
 
+// Prisma de ocho caras con las esquinas biseladas (k = cuánto del lado queda plano). Da volúmenes más redondeados que una caja.
+function cham(c, u, v, w, rx0, rz0, rx1, rz1, hy, color, after, k = .6) {
+  const R8 = [[k, 1], [1, k], [1, -k], [k, -1], [-k, -1], [-1, -k], [-1, k], [-k, 1]];
+  return {
+    d: camSpace(CAM, c[0], c[1], c[2])[2],
+    draw() {
+      const cam = [CAM.x, CAM.y, CAM.z];
+      const ring = (sy, rx, rz) => R8.map(([a, b]) => [c[0] + u[0] * a * rx + w[0] * b * rz + v[0] * sy * hy, c[1] + u[1] * a * rx + w[1] * b * rz + v[1] * sy * hy, c[2] + u[2] * a * rx + w[2] * b * rz + v[2] * sy * hy]);
+      const Bt = ring(-1, rx0, rz0), Tp = ring(1, rx1, rz1);
+      const face = (pts, n) => {
+        const fc = vMul(pts.reduce((acc, q) => vAdd(acc, q), [0, 0, 0]), 1 / pts.length);
+        if (vDot(n, vSub(cam, fc)) <= 0) return false;
+        const col = shade(color, .58 + .48 * Math.max(0, vDot(n, LIGHT)));
+        const q = clipPoly(pts); if (q.length < 3) return false;
+        ctx.beginPath(); q.forEach((p2, i) => i ? ctx.lineTo(p2.x, p2.y) : ctx.moveTo(p2.x, p2.y)); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = .7; ctx.stroke();
+        return true;
+      };
+      let front = false;
+      for (let i = 0; i < 8; i++) {
+        const j = (i + 1) % 8, [a0, b0] = R8[i], [a1, b1] = R8[j];
+        const du = (a1 - a0) * (rx0 + rx1), dw = (b1 - b0) * (rz0 + rz1);
+        const n = vNorm(vAdd(vMul(u, -dw), vMul(w, du)));
+        if (face([Bt[i], Bt[j], Tp[j], Tp[i]], n) && i === 7) front = true;
+      }
+      face(Tp, v); face(Bt, vMul(v, -1));
+      if (after && front) after();
+    },
+  };
+}
+
 function personParts(p, isMannequin) {
   const L = p.look, s = p.h / 1.75, parts = [];
   const F = vNorm([p.fx || 0, 0, p.fz == null ? -1 : p.fz]), R = [F[2], 0, -F[0]], U = [0, 1, 0];
   const at = (x, y, z) => [p.x + R[0] * x * s + F[0] * z * s, y * s, p.z + R[2] * x * s + F[2] * z * s];
-  const box = (c, hx, hy, hz, color, after, ax = R, ay = U, az = F) => parts.push(prism(c, ax, ay, az, hx * s, hz * s, hx * s, hz * s, hy * s, color, after));
-  const limb = (A, B, t, color) => {
+  const box = (c, hx, hy, hz, color) => parts.push(prism(c, R, U, F, hx * s, hz * s, hx * s, hz * s, hy * s, color));
+  const blob = (c, hx0, hz0, hx1, hz1, hy, color, k) => parts.push(cham(c, R, U, F, hx0 * s, hz0 * s, hx1 * s, hz1 * s, hy * s, color, null, k));
+  const limb = (A, B, t0, t1, color) => {
     const v = vNorm(vSub(B, A));
     let u = vSub(R, vMul(v, vDot(R, v))); if (Math.hypot(...u) < 1e-3) u = F;
     u = vNorm(u); const w = vCross(u, v), half = Math.hypot(...vSub(B, A)) / 2;
-    parts.push(prism(vMul(vAdd(A, B), .5), u, v, w, t * s / 2, t * s / 2, t * s / 2, t * s / 2, half, color));
+    parts.push(cham(vMul(vAdd(A, B), .5), u, v, w, t0 * s / 2, t0 * s / 2, t1 * s / 2, t1 * s / 2, half, color, null, .5));
   };
   const moving = p.moving && !isMannequin, ph = p.phase || 0;
   const skin = L.skin, pants = isMannequin ? skin : L.pants, torso = L.hoodie || L.shirt;
@@ -1839,29 +1875,32 @@ function personParts(p, isMannequin) {
   const longSleeve = L.hoodie || L.police || L.vest || isMannequin || (p.id % 2 === 0);
   const dir = (pitch, side, spread) => vNorm(vAdd(vAdd(vMul(F, Math.sin(pitch)), vMul(U, -Math.cos(pitch))), vMul(R, side * spread)));
 
-  // piernas y zapatos
+  // piernas (muslo más ancho que la pantorrilla) y zapatillas con suela
   for (const sg of [-1, 1]) {
     const off = sg > 0 ? Math.PI : 0;
     const a = moving ? .5 * Math.sin(ph + off) : 0;
     const bend = moving ? .95 * Math.max(0, Math.sin(ph + off + 1.3)) : 0;
-    const hip = at(sg * .09, .88, 0);
-    const knee = vAdd(hip, vMul(dir(a, 0, 0), .42 * s));
-    const foot = vAdd(knee, vMul(dir(a - bend, 0, 0), .42 * s)); foot[1] = Math.max(foot[1], .05 * s);
-    limb(hip, knee, .15, pants); limb(knee, foot, .12, pants);
-    box(vAdd(foot, vAdd(vMul(F, .04 * s), [0, -.015 * s, 0])), .055, .035, .12, isMannequin ? skin : L.shoes);
+    const hip = at(sg * .09, .9, 0);
+    const knee = vAdd(hip, vMul(dir(a, 0, 0), .43 * s));
+    const foot = vAdd(knee, vMul(dir(a - bend, 0, 0), .42 * s)); foot[1] = Math.max(foot[1], .06 * s);
+    limb(hip, knee, .165, .13, pants); limb(knee, foot, .125, .1, pants);
+    const shoe = isMannequin ? skin : L.shoes;
+    parts.push(cham(vAdd(foot, vAdd(vMul(F, .045 * s), [0, -.025 * s, 0])), R, U, F, .055 * s, .12 * s, .05 * s, .1 * s, .035 * s, shoe, null, .55));
+    if (!isMannequin) box(vAdd(foot, vAdd(vMul(F, .045 * s), [0, -.055 * s, 0])), .058, .006, .122, "#e3e6e2");
   }
-  box(at(0, .9, 0), .17, .07, .11, pants);
-  // torso, ropa encima y cuello
-  parts.push(prism(at(0, 1.17, 0), R, U, F, .155 * s, .1 * s, .205 * s, .115 * s, .29 * s, L.dress || torso));
-  if (L.dress) parts.push(prism(at(0, .72, 0), R, U, F, .23 * s, .17 * s, .16 * s, .12 * s, .25 * s, L.dress));
-  if (L.hoodie) box(at(0, 1.0, .108), .1, .045, .008, darker(torso, .72));
+  blob(at(0, .9, 0), .175, .11, .17, .105, .075, pants);
+  // torso con hombros más anchos que la cintura, ropa encima y cuello
+  blob(at(0, 1.17, 0), .155, .1, .205, .115, .29, L.dress || torso, .62);
+  if (L.dress) blob(at(0, .72, 0), .24, .18, .16, .12, .25, L.dress, .7);
+  if (L.hoodie) box(at(0, 1.0, .112), .1, .045, .008, darker(torso, .72));
+  if (!L.hoodie && !L.police && !L.vest && !isMannequin) box(at(0, 1.455, .095), .06, .012, .03, darker(L.dress || torso, .8));
   if (L.vest) {
-    parts.push(prism(at(0, 1.2, 0), R, U, F, .168 * s, .112 * s, .214 * s, .126 * s, .24 * s, "#ff7a1a"));
-    parts.push(prism(at(0, 1.07, 0), R, U, F, .176 * s, .118 * s, .183 * s, .121 * s, .018 * s, "#e9eef0"));
-    box(at(-.1, 1.33, .13), .03, .02, .006, "#e9eef0");
+    blob(at(0, 1.2, 0), .168, .112, .214, .126, .24, "#ff7a1a", .62);
+    blob(at(0, 1.07, 0), .176, .118, .183, .121, .018, "#e9eef0", .62);
+    box(at(-.1, 1.33, .132), .03, .02, .006, "#e9eef0");
   }
-  if (L.police) { parts.push(prism(at(0, .935, 0), R, U, F, .158 * s, .104 * s, .16 * s, .105 * s, .022 * s, "#0d0d0d")); box(at(-.09, 1.31, .118), .025, .025, .006, "#f2c94c"); }
-  box(at(0, 1.5, 0), .045, .04, .045, skin);
+  if (L.police) { blob(at(0, .935, 0), .158, .104, .16, .106, .022, "#0d0d0d"); box(at(-.09, 1.31, .12), .025, .025, .006, "#f2c94c"); }
+  blob(at(0, 1.5, 0), .05, .05, .045, .045, .04, skin);
 
   // brazos (contrarios a las piernas) y lo que llevan en las manos
   const reach = p.anim === "reach" || p.anim === "stock", hands = {};
@@ -1873,11 +1912,12 @@ function personParts(p, isMannequin) {
     else if (carryBox) { pitch = .9; bend = .8; spread = .02; }
     else if (reach && sg > 0) { const up = Math.sin(Math.min(1, (p.tt || 0) / .45) * Math.PI / 2); pitch = .3 + 1.5 * up; bend = .1; spread = .05; }
     else if (p.anim === "pay" && sg > 0) { pitch = 1.0; bend = .5; }
-    const sh = at(sg * .23, 1.43, 0);
+    const sh = at(sg * .225, 1.42, 0);
     const elbow = vAdd(sh, vMul(dir(pitch, sg, spread), .28 * s));
     const hand = vAdd(elbow, vMul(dir(pitch + bend, sg, spread * .5), .26 * s));
-    limb(sh, elbow, .1, sleeve); limb(elbow, hand, .085, longSleeve ? sleeve : skin);
-    box(hand, .036, .036, .036, skin);
+    blob(at(sg * .2, 1.41, 0), .065, .07, .055, .06, .05, sleeve);
+    limb(sh, elbow, .105, .09, sleeve); limb(elbow, hand, .085, .072, longSleeve ? sleeve : skin);
+    parts.push(cham(hand, R, U, F, .036 * s, .03 * s, .03 * s, .026 * s, .04 * s, skin, null, .5));
     hands[sg] = hand;
   }
   const hl = hands[-1], hr = hands[1];
@@ -1890,45 +1930,51 @@ function personParts(p, isMannequin) {
   if (p.handItem) box(vAdd(hr, vMul(F, .03 * s)), .045, .045, .045, p.handItem);
   if (p.cuffed) box(vMul(vAdd(hl, hr), .5), .04, .02, .02, "#c9d1d4");
   if (carryBox) { box(at(0, 1.2, .3), .2, .14, .15, "#b98b55"); box(at(0, 1.345, .3), .2, .006, .03, "#d8c49a"); }
-  if (isMannequin) box(at(0, .015, 0), .2, .015, .2, "#9aa3a5");
+  if (isMannequin) blob(at(0, .015, 0), .2, .2, .2, .2, .015, "#9aa3a5", .5);
 
-  // cabeza: gira con headTurn; los rasgos se pintan sobre la cara de adelante
+  // cabeza redondeada: gira con headTurn; ojos, cejas y boca sobre la cara de adelante
   const yaw = (p.headTurn || 0) * .5, cy = Math.cos(yaw), sy = Math.sin(yaw);
   const HF = vNorm([F[0] * cy + R[0] * sy, 0, F[2] * cy + R[2] * sy]), HR = [HF[2], 0, -HF[0]];
-  const hc = at(0, 1.635, .01), hx = .1, hy = .11, hz = .105;
+  const hc = at(0, 1.635, .01), hx = .095, hy = .11, hz = .105;
   const hp = (x, y, z) => [hc[0] + (HR[0] * x + HF[0] * z) * s, hc[1] + y * s, hc[2] + (HR[2] * x + HF[2] * z) * s];
-  const hbox = (x, y, z, ex, ey, ez, color, after) => parts.push(prism(hp(x, y, z), HR, U, HF, ex * s, ez * s, ex * s, ez * s, ey * s, color, after));
+  const hbox = (x, y, z, ex, ey, ez, color) => parts.push(prism(hp(x, y, z), HR, U, HF, ex * s, ez * s, ex * s, ez * s, ey * s, color));
+  const hblob = (x, y, z, ex0, ez0, ex1, ez1, ey, color, after, k = .6) => parts.push(cham(hp(x, y, z), HR, U, HF, ex0 * s, ez0 * s, ex1 * s, ez1 * s, ey * s, color, after, k));
   const face = (x, y, ex, ey, col) => poly(clipPoly([hp(x - ex, y - ey, hz + .003), hp(x + ex, y - ey, hz + .003), hp(x + ex, y + ey, hz + .003), hp(x - ex, y + ey, hz + .003)]), col);
   const features = () => {
     if (isMannequin) return;
     const blink = (nowT * .8 + p.id * .37) % 3.6 < .12;
-    for (const sg of [-1, 1]) face(sg * .038, .016, .016, blink ? .004 : .016, "#1d1410");
-    face(0, -.048, .03, .006, "#7a3a2a");
-    if (L.glasses) face(0, .016, .085, .017, "#0d0d0d");
-    if (L.beard) face(0, -.065, .09, .04, L.hair);
+    for (const sg of [-1, 1]) {
+      if (blink) face(sg * .036, .014, .016, .004, "#1d1410");
+      else { face(sg * .036, .014, .016, .014, "#f4f1ea"); face(sg * .036 + .004, .012, .009, .011, "#1d1410"); }
+      face(sg * .036, .042, .02, .005, darker(L.hair, .9));
+    }
+    face(0, -.052, .03, .006, "#7a3a2a");
+    if (L.glasses) { for (const sg of [-1, 1]) face(sg * .036, .014, .024, .02, "#0d0d0d"); face(0, .018, .02, .004, "#0d0d0d"); }
+    if (L.beard) face(0, -.065, .085, .04, L.hair);
   };
-  hbox(0, 0, 0, hx, hy, hz, skin, features);
+  hblob(0, 0, 0, hx, hz, hx * .92, hz * .95, hy, skin, features, .62);
+  hbox(0, -.012, hz + .012, .014, .02, .014, darker(skin, .9));
+  for (const sg of [-1, 1]) hbox(sg * (hx + .006), -.005, -.005, .008, .028, .018, darker(skin, .92));
   const hs = L.hairStyle;
   if (L.hood) {
-    hbox(0, .012, -.025, hx + .032, hy + .03, hz + .012, L.hoodie);
+    hblob(0, .012, -.03, hx + .035, hz + .02, hx + .025, hz + .012, hy + .03, L.hoodie);
     if (p.gender === "M") for (const sg of [-1, 1]) hbox(sg * (hx - .012), -.06, hz + .004, .012, .05, .005, L.hair);
   } else if (!isMannequin && hs !== "none") {
-    const top = hs === "rapado" ? .007 : .018;
-    hbox(0, hy + top * .7, -.004, hx + .012, top, hz + .014, L.hair);
-    hbox(0, .02, -(hz + .01), hx + .012, hy * .8, .012, L.hair);
-    for (const sg of [-1, 1]) hbox(sg * (hx + .008), .045, -.02, .01, .065, hz * .8, L.hair);
-    if (hs !== "rapado") hbox(0, hy - .025, hz + .006, hx + .008, .028, .008, L.hair);
-    if (hs === "largo") { hbox(0, -.09, -(hz + .02), hx + .02, .2, .025, L.hair); for (const sg of [-1, 1]) hbox(sg * (hx + .012), -.07, 0, .012, .1, .05, L.hair); }
-    if (hs === "melena") { hbox(0, -.03, -(hz + .02), hx + .02, .12, .025, L.hair); for (const sg of [-1, 1]) hbox(sg * (hx + .012), -.03, 0, .012, .07, .06, L.hair); }
-    if (hs === "cola") hbox(0, -.05, -(hz + .06), .03, .09, .03, L.hair);
-    if (hs === "rodete") hbox(0, hy + .04, -.045, .05, .04, .05, L.hair);
+    // casco de pelo: cubre la parte de arriba y la frente; el resto según el peinado
+    const y0 = hs === "rapado" ? .07 : .05;
+    hblob(0, (y0 + hy + .022) / 2, -.006, hx + .014, hz + .012, hx + .008, hz + .006, (hy + .022 - y0) / 2, L.hair);
+    hblob(0, -.01, -(hz * .55), hx + .012, hz * .5, hx + .012, hz * .5, hy * .62, L.hair);
+    if (hs === "largo") { hblob(0, -.1, -(hz * .7), hx + .022, hz * .45, hx + .022, hz * .45, .19, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .01), -.07, -.01, .012, .1, .05, L.hair); }
+    if (hs === "melena") { hblob(0, -.04, -(hz * .6), hx + .02, hz * .5, hx + .02, hz * .5, .11, L.hair, null, .7); for (const sg of [-1, 1]) hbox(sg * (hx + .01), -.03, -.01, .012, .07, .06, L.hair); }
+    if (hs === "cola") hblob(0, -.05, -(hz + .06), .03, .03, .022, .025, .09, L.hair);
+    if (hs === "rodete") hblob(0, hy + .04, -.045, .05, .05, .045, .045, .04, L.hair);
   }
   if (L.police) {
-    hbox(0, hy + .03, -.005, hx + .02, .04, hz + .02, "#172739");
-    hbox(0, hy + .005, -.005, hx + .022, .012, hz + .022, "#f2c94c");
+    hblob(0, hy + .03, -.005, hx + .02, hz + .02, hx + .028, hz + .028, .04, "#172739");
+    hblob(0, hy + .005, -.005, hx + .022, hz + .022, hx + .022, hz + .022, .012, "#f2c94c");
     hbox(0, hy - .005, hz + .07, hx * .85, .008, .07, "#0b1420");
   } else if (L.cap && !L.hood) {
-    hbox(0, hy + .022, -.005, hx + .016, .03, hz + .016, L.cap);
+    hblob(0, hy + .022, -.005, hx + .016, hz + .016, hx + .01, hz + .01, .032, L.cap);
     hbox(0, hy - .002, hz + .075, hx * .85, .008, .075, L.cap);
   }
   return parts;
@@ -2130,6 +2176,15 @@ function render(time) {
     g.addColorStop(0, red ? "rgba(255,50,50,.42)" : "rgba(60,110,255,.42)"); g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, 110);
   }
+  const gt = !drag && tutTarget();
+  if (gt) {
+    const pad = 6, a = .55 + .45 * Math.sin(time * 6);
+    ctx.globalAlpha = a; ctx.strokeStyle = "#ffb547"; ctx.lineWidth = 2.5; ctx.setLineDash([8, 6]); ctx.lineDashOffset = -time * 30;
+    ctx.strokeRect(gt.x - pad, gt.y - pad, gt.w + pad * 2, gt.h + pad * 2); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    ctx.font = '700 14px "Chakra Petch", sans-serif'; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.8)";
+    ctx.strokeText("ARRASTRÁ DE ACÁ A ACÁ", gt.x + gt.w / 2, gt.y - pad - 10); ctx.fillStyle = "#ffb547"; ctx.fillText("ARRASTRÁ DE ACÁ A ACÁ", gt.x + gt.w / 2, gt.y - pad - 10);
+    ctx.textAlign = "left"; ctx.globalAlpha = 1;
+  }
   if (drag && !drag.zone) {
     const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1), w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
     ctx.fillStyle = "rgba(67,224,138,.12)"; ctx.fillRect(x, y, w, h);
@@ -2207,11 +2262,12 @@ $("tErase").onclick = () => { game.erase = !game.erase; syncTools(); };
 $("tHeat").onclick = () => { game.heat = !game.heat; syncTools(); };
 $("btnPause").onclick = () => { game.paused = !game.paused; syncTools(); };
 $("btnStart").onclick = () => startShift();
-$("btnIntro").onclick = () => { $("intro").hidden = true; playStory(INTRO, enterSetup); };
-$("btnNoStory").onclick = () => { $("intro").hidden = true; enterSetup(); };
+$("btnIntro").onclick = () => { $("intro").hidden = true; game.storyMode = true; playStory(INTRO, enterSetup); };
+$("btnNoStory").onclick = () => { $("intro").hidden = true; game.storyMode = false; enterSetup(); };
 
 function enterSetup() {
   game.state = "setup"; game.paused = false; setupLevel(); game.brush = 2; switchCam(0); setMode("zones");
+  if (game.level === 0 && game.storyMode && !game.tutDone) startTutorial();
   coach("zones", "Pintá cada zona sobre el piso: elegí la etiqueta abajo y arrastrá. Los porcentajes de la derecha te dicen si vas bien.");
 }
 function startShift() {
@@ -2299,7 +2355,7 @@ function drawTech(g, o) {
   px(g, 10, 24, 20, 17, BRAND.polo);
   px(g, 16, 23, 3, 3, collar); px(g, 21, 23, 3, 3, collar); px(g, 19, 24, 2, 1, skin);
   px(g, 19, 25, 2, 6, BRAND.poloD); px(g, 19, 26, 1, 1, collar); px(g, 19, 29, 1, 1, collar);
-  px(g, 12, 28, 5, 3, "#f2f5f2"); px(g, 13, 29, 3, 1, "#0b1012"); px(g, 14, 29, 1, 1, "#ffb547");
+  pxLogo(g, 11, 27, "#f2f5f2");
   px(g, 7, 24, 3, 8, BRAND.polo); px(g, 30, 24, 3, 8, BRAND.polo);
   px(g, 7, 32, 3, 7, skin); px(g, 30, 32, 3, 7, skin);
   px(g, 27, 33, 8, 10, "#2a2e30"); px(g, 28, 34, 6, 8, "#52c7ff");
@@ -2310,21 +2366,35 @@ function drawTech(g, o) {
   px(g, 13, 42, 6, 17, pants); px(g, 21, 42, 6, 17, pants);
   px(g, 12, 59, 7, 3, shoe); px(g, 21, 59, 7, 3, shoe); px(g, 12, 61, 7, 1, BRAND.polo); px(g, 21, 61, 7, 1, BRAND.polo);
 }
-// El Cerebro hecho robot: pantalla de cara y cuerpo de placa verde
+// Logo de LeanVision (provisorio: un ojo). Cambiar acá cuando tengamos el logo real.
+function pxLogo(g, x, y, ring = "#178a82") {
+  px(g, x + 1, y, 5, 1, ring); px(g, x, y + 1, 7, 2, ring); px(g, x + 1, y + 3, 5, 1, ring);
+  px(g, x + 1, y + 1, 5, 2, "#f2f5f2"); px(g, x + 2, y + 1, 3, 2, "#0b1012"); px(g, x + 3, y + 1, 1, 1, "#ffb547");
+}
+// Lenna, la IA de LeanVision: robot blanco que flota, con visor negro y ojos turquesa
+function pxEllipse(g, cx, cy, rx, ry, c) {
+  for (let y = -ry; y <= ry; y++) { const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (y / (ry + .5)) ** 2))); if (w > 0) px(g, cx - w, cy + y, w * 2, 1, c); }
+}
 function drawBot(g, o, t) {
   g.clearRect(0, 0, 40, 44);
-  const shell = "#e3e6e2", shellD = "#aab2b0", eye = o.alert ? "#ff5a52" : "#43e08a";
-  px(g, 19, 3, 2, 5, "#9aa3a5"); px(g, 18, 0, 4, 3, Math.floor(t * 2) % 2 ? "#ff3b30" : "#7a1a14");
-  px(g, 9, 8, 22, 18, shell); px(g, 8, 9, 24, 16, shell); px(g, 9, 25, 22, 1, shellD); px(g, 31, 9, 1, 16, shellD);
-  px(g, 11, 11, 18, 12, "#0b1416");
-  if (o.blink) { px(g, 14, 16, 4, 1, eye); px(g, 22, 16, 4, 1, eye); }
-  else { px(g, 14, 13, 4, 5, eye); px(g, 22, 13, 4, 5, eye); px(g, 15, 14, 1, 1, "#c8ffe0"); px(g, 23, 14, 1, 1, "#c8ffe0"); }
-  if (o.talk) px(g, 17, 20, 6, 2, eye); else px(g, 18, 20, 4, 1, eye);
-  px(g, 5, 13, 3, 6, "#9aa3a5"); px(g, 32, 13, 3, 6, "#9aa3a5");
-  px(g, 12, 27, 16, 10, "#2f8f4e"); px(g, 12, 27, 16, 1, "#3fae62"); px(g, 17, 30, 6, 4, "#1b1b1b");
-  for (let i = 0; i < 5; i++) px(g, 13 + i * 3, 35, 1, 1, "#d8b46a");
-  px(g, 13, 28, 2, 1, "#d8b46a"); px(g, 25, 28, 2, 1, "#d8b46a");
-  const fl = Math.floor(t * 10) % 2; px(g, 16, 38, 8, 2, fl ? "#52c7ff" : "#9ee6ff"); px(g, 18, 40, 4, 2 + fl, "#52c7ff");
+  const W1 = "#f6f8f7", W2 = "#d4dbd8", eye = o.alert ? "#ff5a52" : "#2fd0c0", glow = Math.sin(t * 3) > 0 ? "#2fd0c0" : "#1c8f86";
+  // cabeza
+  pxEllipse(g, 20, 12, 12, 10, W2); pxEllipse(g, 19, 11, 11, 9, W1);
+  pxEllipse(g, 20, 13, 9, 5, "#0b1214");
+  if (o.blink) { px(g, 13, 13, 5, 1, eye); px(g, 22, 13, 5, 1, eye); }
+  else if (o.talk) { px(g, 13, 12, 5, 2, eye); px(g, 22, 12, 5, 2, eye); px(g, 14, 11, 3, 1, eye); px(g, 23, 11, 3, 1, eye); }
+  else { px(g, 14, 11, 4, 4, eye); px(g, 23, 11, 4, 4, eye); px(g, 13, 12, 6, 2, eye); px(g, 22, 12, 6, 2, eye); px(g, 15, 11, 1, 1, "#c9fff7"); px(g, 24, 11, 1, 1, "#c9fff7"); }
+  // lente de cámara al costado: es una IA de cámaras
+  px(g, 30, 10, 3, 5, W2); px(g, 31, 11, 2, 3, "#0b1214"); px(g, 31, 12, 1, 1, Math.floor(t * 2) % 2 ? "#ff3b30" : "#5a1410");
+  // cuerpo de huevo, separado de la cabeza
+  pxEllipse(g, 20, 31, 9, 9, W2); pxEllipse(g, 19, 30, 8, 8, W1);
+  pxLogo(g, 16, 26);
+  px(g, 13, 36, 14, 1, glow);
+  // brazos flotantes
+  pxEllipse(g, 7, 30, 2, 5, W2); px(g, 6, 27, 2, 6, W1);
+  pxEllipse(g, 33, 30, 2, 5, W2); px(g, 32, 27, 2, 6, W1);
+  // propulsión
+  const fl = Math.floor(t * 10) % 2; px(g, 16, 40, 8, 1, fl ? "#2fd0c0" : "#9ff3ea"); px(g, 18, 41, 4, 1 + fl, "#2fd0c0");
 }
 const SPR = { owner: sprCanvas(40, 64), tech: sprCanvas(40, 64), bot: sprCanvas(40, 44) };
 const DRAW = { owner: drawOwner, tech: drawTech, bot: drawBot };
@@ -2332,49 +2402,109 @@ const DRAW = { owner: drawOwner, tech: drawTech, bot: drawBot };
 // ───────────────────────── Diálogos
 const SPEAKERS = {
   owner: { name: "Sofía · dueña de Sofía Moda", color: "#ffb547" },
-  tech: { name: "Leo · técnico de LeanVision", color: "#2fd0c0" },
-  bot: { name: "Cerebro · el robot de LeanVision", color: "#43e08a" },
+  tech: { name: "Leo · técnico de LeanVision", color: "#8fb8ff" },
+  bot: { name: "Lenna · la IA de LeanVision", color: "#2fd0c0" },
 };
 const INTRO = [
   { who: "owner", text: "Hola, soy Sofía. Hace ocho años que tengo este local de ropa." },
   { who: "owner", text: "Entra un montón de gente, pero no sé cuánta, qué mira ni por qué muchos se van sin comprar." },
-  { who: "tech", text: "¡Hola, Sofía! Soy Leo, de LeanVision. Justamente para eso venimos." },
-  { who: "tech", text: "Con las cámaras de seguridad que ya tenés podemos medir todo eso, sin cambiar nada del local." },
+  { who: "tech", text: "¡Hola, Sofía! Soy Leo, de LeanVision. Lo que hacemos es convertir las cámaras de seguridad que ya tenés en datos para tu negocio." },
   { who: "owner", text: "¿Las cámaras? Si solo graban y nadie mira las grabaciones…" },
-  { who: "bot", text: "Bip bup. Ahora alguien las mira: yo. Soy el Cerebro, una computadora chiquita que vive acá, en tu local." },
-  { who: "tech", text: "El Cerebro encuadra a cada persona con un recuadro y la sigue mientras recorre el local." },
-  { who: "tech", text: "Vos marcás las zonas: entrada, góndolas, caja, probadores. Así sabés cuánta gente pasa por cada una y cuánto se queda." },
-  { who: "owner", text: "¿Y todo eso dónde lo veo?" },
-  { who: "tech", text: "En la app de LeanVision: visitas, permanencia por zona y un mapa de calor de tu local." },
+  { who: "bot", text: "Ahora alguien las mira: yo. Soy Lenna, la inteligencia artificial de LeanVision." },
+  { who: "bot", panel: "flow", text: "Así funciona: tus cámaras me mandan la imagen y yo la proceso en el Cerebro, una computadora chiquita que se instala en tu local. A la app solo le llegan los resultados." },
+  { who: "tech", panel: "app", text: "En la app ves cuánta gente entró y a qué hora, por dónde caminó, cuánto se quedó en cada zona y cuántos compraron." },
+  { who: "owner", text: "¿Y eso para qué me sirve a mí?" },
+  { who: "tech", panel: "uses", text: "Para decidir con datos: cuánto personal poner en cada horario, dónde ubicar las promos, si la vidriera atrae gente y si la fila de la caja espanta clientes." },
+  { who: "bot", panel: "steps", text: "Para lograrlo hago cuatro cosas todo el día: detecto a cada persona, la sigo entre cámaras, sé en qué zona está y aviso si pasa algo raro." },
   { who: "owner", text: "¿Y si alguien me roba?" },
   { who: "tech", text: "Si ves a alguien sospechoso lo marcás como ladrón y llamamos a la policía. Pero ojo: acusar a un cliente inocente sale caro." },
-  { who: "bot", text: "Hoy el Cerebro sos vos. Primero pintá las zonas en el piso. Después encuadrá a cada persona que entre. ¡A calibrar!" },
+  { who: "bot", text: "Hoy vas a hacer mi trabajo para ver cómo es. Yo te voy guiando paso a paso. Empecemos por las zonas del local." },
 ];
 const PRE = {
   1: [
     { who: "owner", text: "Al mediodía esto se llena. Y el depósito queda solo mientras repongo." },
-    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la caja y el depósito. Cambiá entre ellas con las miniaturas o las teclas 1, 2 y 3." },
-    { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID." },
-    { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido." },
+    { who: "tech", text: "Para eso tenés tres cámaras: el salón, la que está arriba de los probadores y la del depósito. Cambiá con las miniaturas o con las teclas 1, 2 y 3." },
+    { who: "bot", text: "Cuando alguien pasa de una cámara a otra lo reconozco por la ropa y la silueta: conserva su ID. Así no cuento dos veces a la misma persona." },
+    { who: "tech", text: "Una cosa más: a veces intentan meterse en las cámaras. Si una se llena de estática, repárala rápido: sin señal no hay datos." },
     { who: "owner", text: "¿Hackers en mi local? ¡Lo que me faltaba!" },
   ],
   2: [
     { who: "owner", text: "Llegó la hora pico. Es cuando más vendo… y cuando más me roban." },
     { who: "tech", text: "Hay más gente y algunos ladrones ya no usan capucha. Fijate en lo que hacen, no solo en cómo se visten." },
-    { who: "bot", text: "Y si se corta internet, tranqui: guardo cada visita en mi disco y la mando cuando vuelve la conexión." },
+    { who: "bot", text: "Y si se corta internet, tranqui: guardo cada visita en el disco del Cerebro y la mando cuando vuelve la conexión." },
   ],
 };
 const PRE_ENDLESS = [
   { who: "owner", text: "¡Arranca la liquidación! Se viene una avalancha de gente." },
   { who: "tech", text: "Mismo trabajo, más gente y más intentos de hackeo. Vos podés." },
 ];
-// Cómo lo hace el Cerebro de verdad (sacado del código de ServidorCerebro)
+// Cómo lo hace LeanVision de verdad (sacado del código de ServidorCerebro)
 const FACTS = [
-  "En un local real nadie dibuja recuadros: cada cámara detecta a las personas y me manda los recortes. Yo calculo dónde está cada una en el plano y sumo sus segundos en cada zona, sobre una grilla de 50 cm.",
+  "En un local real nadie dibuja recuadros: cada cámara detecta a las personas y le manda los recortes al Cerebro. Ahí calculo dónde está cada una en el plano y sumo sus segundos en cada zona, sobre una grilla de 50 cm.",
   "Para reconocer a alguien entre cámaras uso una red neuronal llamada OSNet: saca una huella de la ropa y la silueta. Me acuerdo de cada persona 30 minutos, por si sale y vuelve.",
-  "Cada visita la guardo primero en mi disco y después la mando a la nube. Si se corta internet no se pierde nada. Y cada 15 minutos saco una foto del mapa de calor para comparar horarios.",
+  "Cada visita la guardo primero en el disco del Cerebro y después la mando a la nube. Si se corta internet no se pierde nada. Y cada 15 minutos saco una foto del mapa de calor para comparar horarios.",
   "La edad y el género los estimo con un modelo de caras (InsightFace) recién cuando termina la visita, para no frenar el seguimiento en vivo.",
 ];
+// Láminas que acompañan algunas líneas de la intro
+function drawPanel(kind, time) {
+  const c = sg;
+  c.fillStyle = "rgba(7,11,13,.92)"; c.fillRect(14, 10, 292, 150);
+  c.strokeStyle = "#e3ebe8"; c.lineWidth = 2; c.strokeRect(15, 11, 290, 148);
+  c.textAlign = "center"; c.textBaseline = "middle";
+  const T = (txt, x, y, size = 9, col = "#e3ebe8", w = 600) => { c.font = `${w} ${size}px "Pixelify Sans", monospace`; c.fillStyle = col; c.fillText(txt, x, y); };
+  const icon = (x, y, fn) => { c.save(); c.translate(x, y); fn(); c.restore(); };
+  const B = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(x, y, w, h); };
+  if (kind === "flow") {
+    T("CÓMO FUNCIONA LEANVISION", 160, 26, 10, "#2fd0c0");
+    const steps = [["Tus cámaras", "las que ya tenés"], ["El Cerebro", "en tu local, con Lenna"], ["La nube", "solo resultados"], ["La app", "en tu celular"]];
+    steps.forEach(([a, b], i) => {
+      const x = 52 + i * 72, y = 78, on = Math.floor(time * 1.5) % 4 === i;
+      B(x - 26, y - 26, 52, 44, on ? "#173a37" : "#121c1e"); c.strokeStyle = on ? "#2fd0c0" : "#2a3a3d"; c.lineWidth = 1; c.strokeRect(x - 25.5, y - 25.5, 51, 43);
+      icon(x, y - 6, () => {
+        if (i === 0) { B(-12, -6, 18, 10, "#e3e6e2"); B(6, -3, 6, 4, "#9aa3a5"); B(-9, -3, 4, 4, "#0b1012"); B(-8, -2, 1, 1, "#ff3b30"); B(-4, 4, 2, 6, "#9aa3a5"); }
+        if (i === 1) { B(-10, -9, 20, 18, "#1e2327"); for (let k = 0; k < 4; k++) { B(-7, -6 + k * 4, 10, 2, "#2a3036"); B(5, -6 + k * 4, 2, 2, Math.sin(time * 6 + k) > 0 ? "#43e08a" : "#16301f"); } }
+        if (i === 2) { B(-12, -2, 24, 8, "#e3e6e2"); B(-8, -6, 10, 6, "#e3e6e2"); B(0, -8, 8, 8, "#e3e6e2"); B(-2, 6, 4, 4, "#2fd0c0"); }
+        if (i === 3) { B(-7, -11, 14, 22, "#2a2e30"); B(-5, -8, 10, 15, "#0b1416"); B(-4, 1, 2, 5, "#2fd0c0"); B(-1, -2, 2, 8, "#2fd0c0"); B(2, -5, 2, 11, "#2fd0c0"); }
+      });
+      T(a, x, y + 9, 8); T(b, x, y + 30, 7, "#8d9e9a", 400);
+      if (i < 3) { const ax = x + 28, f = (time * 30 + i * 10) % 14; B(ax, y - 4, 14, 2, "#2a3a3d"); B(ax + f - 2, y - 5, 4, 4, "#2fd0c0"); }
+    });
+    T("La imagen se procesa en el local. A la app viajan los números.", 160, 140, 8, "#c9d4d0", 400);
+  } else if (kind === "app") {
+    T("LO QUE VES EN LA APP", 160, 26, 10, "#2fd0c0");
+    B(30, 38, 120, 112, "#121c1e");
+    T("Visitas por hora", 90, 48, 8);
+    const hv = [3, 5, 8, 6, 9, 12, 7, 4];
+    hv.forEach((v, i) => B(40 + i * 13, 138 - v * 6, 9, v * 6, i === 5 ? "#2fd0c0" : "#2fae6b"));
+    B(170, 38, 120, 52, "#121c1e"); T("Permanencia por zona", 230, 48, 8);
+    [["Entrada", 30, "#4d8dff"], ["Góndolas", 90, "#b46cff"], ["Caja", 55, "#ffb020"]].forEach(([n, v, col], i) => { T(n, 196, 61 + i * 10, 7, "#c9d4d0", 400); B(218, 58 + i * 10, v * .7, 5, col); });
+    B(170, 96, 120, 54, "#121c1e"); T("Mapa de calor", 230, 105, 8);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 10; x++) { const v = (Math.sin(x * .9 + y * 1.3 + time) + 1) / 2; B(180 + x * 10, 113 + y * 8, 9, 7, `hsl(${220 - 200 * v},90%,${35 + 20 * v}%)`); }
+  } else if (kind === "uses") {
+    T("PARA QUÉ TE SIRVE", 160, 26, 10, "#2fd0c0");
+    const items = [["Personal", "cuánta gente poner en cada horario"], ["Promos", "dónde ubicarlas para que se vean"], ["Vidriera", "si atrae gente o pasa de largo"], ["Caja", "si la fila espanta clientes"]];
+    items.forEach(([a, b], i) => {
+      const y = 50 + i * 26;
+      B(36, y - 9, 18, 18, "#173a37"); T(String(i + 1), 45, y, 10, "#2fd0c0");
+      c.textAlign = "left"; T(a, 64, y - 4, 9); T(b, 64, y + 7, 8, "#c9d4d0", 400); c.textAlign = "center";
+    });
+  } else if (kind === "steps") {
+    T("LO QUE HACE LENNA", 160, 26, 10, "#2fd0c0");
+    const items = [["Detectar", "encuadra a cada persona"], ["Seguir", "la reconoce entre cámaras"], ["Ubicar", "sabe en qué zona está"], ["Avisar", "robos, cámaras caídas"]];
+    items.forEach(([a, b], i) => {
+      const x = 52 + i * 72, y = 82, on = Math.floor(time * 1.2) % 4 === i;
+      B(x - 28, y - 34, 56, 64, on ? "#173a37" : "#121c1e");
+      icon(x, y - 14, () => {
+        c.strokeStyle = "#2fd0c0"; c.lineWidth = 2;
+        if (i === 0) { c.setLineDash([3, 2]); c.strokeRect(-7, -10, 14, 20); c.setLineDash([]); B(-2, -7, 4, 4, "#e3e6e2"); B(-3, -3, 6, 9, "#e3e6e2"); }
+        if (i === 1) { B(-10, -6, 8, 6, "#e3e6e2"); B(2, -6, 8, 6, "#e3e6e2"); B(-2, 4, 4, 2, "#2fd0c0"); B(-6, 2, 12, 2, "#2fd0c0"); }
+        if (i === 2) { B(-10, -8, 20, 16, "#2a3a3d"); B(-10, -8, 10, 8, "#4d8dff"); B(0, 0, 10, 8, "#b46cff"); B(-1, -1, 3, 3, "#ffffff"); }
+        if (i === 3) { B(-2, -10, 4, 12, Math.floor(time * 3) % 2 ? "#ff5a52" : "#ffb547"); B(-2, 5, 4, 4, Math.floor(time * 3) % 2 ? "#ff5a52" : "#ffb547"); }
+      });
+      T(a, x, y + 6, 9); T(b, x, y + 20, 7, "#c9d4d0", 400);
+    });
+  }
+}
 const storyEl = $("story"), scv = $("storyCv"), sg = scv.getContext("2d");
 const storyBgCv = sprCanvas(160, 120);
 let story = null;
@@ -2417,6 +2547,10 @@ function drawStory(time, dt) {
   sg.drawImage(storyBgCv, 0, 0, 320, 240);
   sg.fillStyle = "rgba(8,12,14,.5)"; sg.fillRect(0, 0, 320, 240);
   const blinkAt = k => (time * .9 + k * .37) % 4 < .12;
+  if (L.panel) {
+    drawPanel(L.panel, time);
+    return;
+  }
   const place = { owner: [28, 30, 2], tech: [212, 30, 2], bot: [122, 14, 2] };
   for (const who of ["owner", "tech", "bot"]) {
     const g = SPR[who].getContext("2d"), speaking = L.who === who;
@@ -2430,16 +2564,48 @@ function drawStory(time, dt) {
   }
 }
 
+// ───────────────────────── Tutorial guiado (primer turno, con historia)
+const TUT = [
+  { text: "Elegí «Entrada» abajo y pintá el piso frente a la puerta de SALIDA. Es la zona por donde entra la gente.", done: () => missionIoU(MISSIONS[0]) >= .3 },
+  { text: "Ahora pintá Góndolas y Caja. Con zonas, la app te dice qué sector atrae más gente. Cuando quieras, tocá INICIAR TURNO.", done: () => game.state === "play" },
+  { text: "¡Entró alguien! Arrastrá un recuadro desde la cabeza hasta los pies. Te marco dónde. El tiempo va más lento hasta que lo hagas.", done: () => game.stats.tp >= 1, slow: true, ghost: true },
+  { text: "Bien. Ahora clasificala: hombre o mujer, y qué rol tiene. Así la app conoce el perfil de tus clientes.", done: () => people.some(p => p.track && p.track.gender && p.track.type), slow: true },
+  { text: "Tenés tres cámaras. Tocá la miniatura de la CAM-03 (o la tecla 3) para mirar el depósito.", done: () => curCam.id === 3 },
+  { text: "¡Listo! Seguí solo: detectá a todos, revisá las tres cámaras y ojo con los que agarran cosas sin canasto.", done: () => tut.t > 7 },
+];
+let tut = null;
+function startTutorial() { tut = { i: 0, t: 0 }; showTut(); }
+function showTut() {
+  $("coachWho").textContent = `Lenna · paso ${tut.i + 1} de ${TUT.length}`;
+  $("coachText").textContent = TUT[tut.i].text;
+  $("coach").hidden = false; $("tutSkip").hidden = false; coachAlert = false; clearTimeout(coachTimer);
+}
+function endTutorial() { tut = null; game.tutDone = true; $("tutSkip").hidden = true; $("coach").hidden = true; $("coachWho").textContent = "Lenna"; }
+function tutTick(dt) {
+  if (!tut || story || game.paused) return;
+  if (game.state !== "setup" && game.state !== "play") return;
+  tut.t += dt;
+  if (TUT[tut.i].done()) { tut.i++; tut.t = 0; if (tut.i >= TUT.length) endTutorial(); else showTut(); }
+}
+const tutTarget = () => {
+  if (!tut || !TUT[tut.i].ghost || game.state !== "play") return null;
+  let best = null, bh = 0;
+  for (const p of people) if (!p.track && inView(curCam, p)) { const b = personBox(p); if (b.h > bh) { bh = b.h; best = b; } }
+  return best;
+};
+const tutSlow = () => tut && TUT[tut.i].slow && game.state === "play" && (TUT[tut.i].ghost ? !!tutTarget() : true);
+$("tutSkip").addEventListener("click", e => { e.stopPropagation(); endTutorial(); });
+
 // ───────────────────────── Consejos del robot durante el juego
 const coachSeen = new Set(), coachCv = $("coachCv"), coachG = coachCv.getContext("2d");
 let coachTimer = null, coachAlert = false;
 function coach(key, text, alert = false) {
-  if (coachSeen.has(key) || story) return;
+  if (coachSeen.has(key) || story || tut) return;
   coachSeen.add(key); coachAlert = alert;
   $("coachText").textContent = text; $("coach").hidden = false;
   clearTimeout(coachTimer); coachTimer = setTimeout(() => { $("coach").hidden = true; }, 7500);
 }
-$("coach").addEventListener("click", () => { $("coach").hidden = true; });
+$("coach").addEventListener("click", () => { if (!tut) $("coach").hidden = true; });
 function drawCoach(time) {
   if ($("coach").hidden) return;
   drawBot(coachG, { talk: Math.floor(time * 6) % 2 === 0, blink: time % 3 < .1, alert: coachAlert }, time);
@@ -2565,7 +2731,7 @@ function showReport(R) {
       </section>
       <section class="panel fact wide">
         <canvas id="factBot" width="40" height="44" aria-hidden="true"></canvas>
-        <div><h3>Así lo hace el Cerebro de verdad</h3><p>${R.fact}</p></div>
+        <div><h3>Así lo hace LeanVision de verdad</h3><p>${R.fact}</p></div>
       </section>
     </div>
     <section class="perf">
