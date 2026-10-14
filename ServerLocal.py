@@ -161,7 +161,19 @@ REID_WORKERS = 1  # OSNet sobre CPU es más estable con una inferencia a la vez.
 # rinde bastante más que de a uno (medido en x86: osnet_ibn_x1_0 de 66 ms a
 # 37 ms por recorte con lotes de 8). Con poca gente el lote es de 1 y no
 # cambia nada: no se espera a juntar recortes.
-REID_LOTE = max(1, int(os.getenv("CEREBRO_REID_LOTE", "8")))
+def _entero_env(clave: str, defecto: int) -> int:
+    """Entero del entorno; un valor mal escrito no puede tumbar el arranque."""
+    valor = os.getenv(clave, "").strip()
+    if not valor:
+        return defecto
+    try:
+        return int(valor)
+    except ValueError:
+        print(f"Aviso: {clave}={valor!r} no es un número entero; se usa {defecto}.")
+        return defecto
+
+
+REID_LOTE = max(1, _entero_env("CEREBRO_REID_LOTE", 8))
 # Modelo de Re-ID. osnet_ibn_x1_0 es el que está calibrado (los umbrales de
 # similitud de abajo se ajustaron con él). osnet_x0_5 y osnet_x0_25 son mucho
 # más livianos (en x86, con lotes de 8: 16 y 10 ms por recorte contra 37),
