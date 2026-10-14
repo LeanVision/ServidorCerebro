@@ -66,6 +66,7 @@ def _cargar_dotenv_local(ruta: str = ".env") -> None:
 _cargar_dotenv_local()
 
 import outbox
+from cola_por_persona import NUEVO_DESCARTANDO_VIEJO, REEMPLAZADO, ColaPorPersona
 
 HEATMAP_WIDTH = 640
 HEATMAP_HEIGHT = 480
@@ -151,9 +152,22 @@ PLANO_IMAGEN_MAX_BYTES = 10 * 1024 * 1024
 PLANO_IMAGEN_LADO_MAXIMO_PX = 1600  # redimensiona si es más grande, para no servir fotos enormes en cada carga de página.
 
 # La recepción HTTP no ejecuta IA: sólo encola JPEGs. Así el loop de la cámara
-# nunca queda esperando al modelo ni se acumulan threads sin límite.
+# nunca queda esperando al modelo ni se acumulan threads sin límite. La cola
+# guarda un solo recorte pendiente por persona (ver cola_por_persona.py), así
+# que con mucha gente no se llena de recortes viejos de los mismos.
 REID_QUEUE_SIZE = 300
 REID_WORKERS = 1  # OSNet sobre CPU es más estable con una inferencia a la vez.
+# Recortes que pasan juntos por OSNet en una sola inferencia. En CPU el lote
+# rinde bastante más que de a uno (medido en x86: osnet_ibn_x1_0 de 66 ms a
+# 37 ms por recorte con lotes de 8). Con poca gente el lote es de 1 y no
+# cambia nada: no se espera a juntar recortes.
+REID_LOTE = max(1, int(os.getenv("CEREBRO_REID_LOTE", "8")))
+# Modelo de Re-ID. osnet_ibn_x1_0 es el que está calibrado (los umbrales de
+# similitud de abajo se ajustaron con él). osnet_x0_5 y osnet_x0_25 son mucho
+# más livianos (en x86, con lotes de 8: 16 y 10 ms por recorte contra 37),
+# pero sus huellas son otras: antes de usarlos en un local hay que volver a
+# medir los umbrales.
+REID_MODELO = os.getenv("CEREBRO_REID_MODELO", "osnet_ibn_x1_0").strip()
 SUPABASE_WORKERS = 1
 
 # Re-ID: match flexible para cambios sentado/parado, actualización estricta
@@ -301,13 +315,20 @@ _homografias_cache: dict[str, np.ndarray] = {}
 # búsqueda de zona por punto sea O(1) en el camino caliente de detecciones.
 _celdas_zona_cache: dict[str, set[tuple[int, int]]] = {}
 contador_global_ids = 1
-cola_reid: asyncio.Queue[DetectionJob] | None = None
+cola_reid: ColaPorPersona | None = None
 reid_executor = ThreadPoolExecutor(max_workers=REID_WORKERS, thread_name_prefix="reid")
 supabase_executor = ThreadPoolExecutor(max_workers=SUPABASE_WORKERS, thread_name_prefix="supabase")
 metricas = {
     "accepted": 0,
     "processed": 0,
+    # Recortes viejos descartados porque la cola estaba llena. Antes se
+    # rechazaba el nuevo con un 429; ahora se pierde el más viejo.
     "rejected_full": 0,
+    # Recortes que reemplazaron a uno anterior de la misma persona todavía sin
+    # procesar. Que suba es normal con mucha gente: es la cola haciendo su
+    # trabajo, no un error.
+    "reemplazados": 0,
+    "ultimo_lote": 0,
     "failed": 0,
     "descartados_fuera_local": 0,
     "last_processing_ms": 0.0,
@@ -406,8 +427,8 @@ class EscalaIn(BaseModel):
     metros: float
 
 
-print("Cargando modelo Re-ID OSNet-IBN...")
-extractor_ia = FeatureExtractor(model_name="osnet_ibn_x1_0", device="cpu")
+print(f"Cargando modelo Re-ID {REID_MODELO}...")
+extractor_ia = FeatureExtractor(model_name=REID_MODELO, device="cpu")
 print("Modelo Re-ID listo.")
 
 # Edad/género con InsightFace (modelos pre-entrenados: detección SCRFD +
@@ -1013,15 +1034,58 @@ def _analizar_demografia_al_cierre(fotos: list[bytes]) -> tuple[str, str]:
 
 
 def _procesar_deteccion(job: DetectionJob) -> str | None:
-    """Trabajo CPU serializado: decodifica, extrae Re-ID y actualiza estado.
+    """Una sola detección: decodifica, extrae Re-ID y actualiza estado."""
+    return _procesar_lote([job])[0]
+
+
+def _procesar_lote(jobs: list[DetectionJob]) -> list[str | None]:
+    """Trabajo CPU serializado para varias detecciones juntas.
+
+    Decodifica y filtra cada una por separado, corre OSNet una sola vez sobre
+    todos los recortes que quedan, y después actualiza el estado de a una, en
+    orden de llegada. Una detección con el JPEG roto se cuenta como fallida y
+    no arrastra al resto del lote.
+    """
+    started_at = time.perf_counter()
+    resultados: list[str | None] = [None] * len(jobs)
+    preparados: list[tuple[int, tuple[float, float], np.ndarray]] = []
+    for indice, job in enumerate(jobs):
+        try:
+            preparado = _preparar_deteccion(job)
+        except Exception:
+            logger.exception("No se pudo procesar una detección")
+            with state_lock:
+                metricas["failed"] += 1
+            continue
+        if preparado is not None:
+            preparados.append((indice, *preparado))
+    if not preparados:
+        return resultados
+
+    with torch.inference_mode():
+        huellas = extractor_ia([imagen for _, _, imagen in preparados])
+    with state_lock:
+        metricas["ultimo_lote"] = len(preparados)
+    for (indice, posicion_plano, _), huella in zip(preparados, huellas):
+        try:
+            resultados[indice] = _registrar_deteccion(
+                jobs[indice], posicion_plano, _normalizar_huella(huella), started_at
+            )
+        except Exception:
+            logger.exception("No se pudo procesar una detección")
+            with state_lock:
+                metricas["failed"] += 1
+    return resultados
+
+
+def _preparar_deteccion(job: DetectionJob) -> tuple[tuple[float, float], np.ndarray] | None:
+    """Posición en el plano y recorte RGB listo para OSNet, o None.
 
     Devuelve None si la detección se descarta por caer afuera del contorno
     del local (ver _fuera_del_local) — nunca llega a decodificar el JPEG ni a
-    correr Re-ID, lo más caro de esta función, para no gastar CPU de la Pi en
-    datos que de todos modos no se van a contar.
+    correr Re-ID, lo más caro del procesamiento, para no gastar CPU de la Pi
+    en datos que de todos modos no se van a contar.
     """
-    global contador_global_ids
-    started_at = time.perf_counter()
     posicion = (job.pos_x, job.pos_y)
     # posicion (píxeles nativos de la cámara) sigue usándose tal cual en toda
     # la lógica de Re-ID de abajo (distancias/umbrales tuneados en esa
@@ -1045,9 +1109,18 @@ def _procesar_deteccion(job: DetectionJob) -> str | None:
         raise ValueError("JPEG inválido recibido desde la cámara.")
 
     imagen_rgb = cv2.cvtColor(_recorte_para_reid(imagen_cv2), cv2.COLOR_BGR2RGB)
-    with torch.inference_mode():
-        huella_nueva = _normalizar_huella(extractor_ia([imagen_rgb])[0])
+    return posicion_plano, imagen_rgb
 
+
+def _registrar_deteccion(
+    job: DetectionJob,
+    posicion_plano: tuple[float, float],
+    huella_nueva: torch.Tensor,
+    started_at: float,
+) -> str | None:
+    """Con la huella ya calculada: identidad, zona, heatmap y álbum."""
+    global contador_global_ids
+    posicion = (job.pos_x, job.pos_y)
     ahora = time.time()
     foto_b64 = base64.b64encode(job.image_bytes).decode("utf-8")
     id_local = f"{job.camara_id}_{job.tracker_id}" if job.tracker_id else None
@@ -1315,15 +1388,13 @@ async def _worker_reid() -> None:
     assert cola_reid is not None
     loop = asyncio.get_running_loop()
     while True:
-        job = await cola_reid.get()
+        lote = await cola_reid.tomar(REID_LOTE)
         try:
-            await loop.run_in_executor(reid_executor, _procesar_deteccion, job)
+            await loop.run_in_executor(reid_executor, _procesar_lote, lote)
         except Exception:
-            logger.exception("No se pudo procesar una detección")
+            logger.exception("No se pudo procesar un lote de detecciones")
             with state_lock:
-                metricas["failed"] += 1
-        finally:
-            cola_reid.task_done()
+                metricas["failed"] += len(lote)
 
 
 @app.post("/identificar")
@@ -1349,14 +1420,14 @@ async def identificar_persona(
         raise HTTPException(status_code=422, detail="La imagen está vacía.")
     camara_id = _normalizar_camara_id(camara_id)
     trabajo = DetectionJob(contenido, zona, tracker_id, camara_id, branch_id, posicion_x, posicion_y)
-    try:
-        cola_reid.put_nowait(trabajo)
-    except asyncio.QueueFull as error:
-        with state_lock:
-            metricas["rejected_full"] += 1
-        raise HTTPException(status_code=429, detail="Cola de Re-ID llena; reintentar.") from error
+    clave = (camara_id, tracker_id) if tracker_id else None
+    resultado = cola_reid.poner(clave, trabajo)
     with state_lock:
         metricas["accepted"] += 1
+        if resultado == REEMPLAZADO:
+            metricas["reemplazados"] += 1
+        elif resultado == NUEVO_DESCARTANDO_VIEJO:
+            metricas["rejected_full"] += 1
     return {"status": "queued", "queue_size": cola_reid.qsize()}
 
 
@@ -1674,7 +1745,7 @@ async def reloj_limpiador_background() -> None:
 async def iniciar_servicios() -> None:
     global cola_reid
     _cargar_plano_config()
-    cola_reid = asyncio.Queue(maxsize=REID_QUEUE_SIZE)
+    cola_reid = ColaPorPersona(REID_QUEUE_SIZE)
     for _ in range(REID_WORKERS):
         asyncio.create_task(_worker_reid())
     outbox.inicializar()
@@ -1745,6 +1816,8 @@ def health() -> dict:
             "queue_size": cola_reid.qsize() if cola_reid else None,
             "queue_capacity": REID_QUEUE_SIZE,
             "reid_workers": REID_WORKERS,
+            "reid_lote": REID_LOTE,
+            "reid_modelo": REID_MODELO,
             "active_global_ids": len(clientes_globales),
             # Identidades con la sesión cerrada que todavía se recuerdan por si
             # la persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS).
@@ -3190,7 +3263,7 @@ def panel_web() -> str:
         if(!sb.sesiones_guardadas) return 'Supabase: sin sesiones cerradas todavía';
         return `Supabase: ${sb.sesiones_guardadas} guardadas`;
       }
-      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h,p.contorno||[]);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Rechazados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms · ${textoSupabase(m.supabase)}`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
+      async function actualizar(){try{const [c,h,m,z,p,cam]=await Promise.all(['/api/clientes','/api/heatmap','/health','/api/zonas','/api/plano','/api/camaras'].map(u=>fetch(u).then(r=>r.json())));$('#clientes').innerHTML=c.clientes.map(x=>`<article class="card"><img src="data:image/jpeg;base64,${x.foto}"><b>${x.id}</b><br>${x.zona}<br><small>${x.genero} · ${x.edad}</small><br><small>${x.similitud} · ${x.ultima_vista}</small></article>`).join('')||'Sin personas activas';dibujarHeatmap(h,p.contorno||[]);$('#health').textContent=`Cola: ${m.queue_size}/${m.queue_capacity} · Procesados: ${m.processed} · Reemplazados: ${m.reemplazados} · Descartados: ${m.rejected_full} · Último Re-ID: ${m.last_processing_ms} ms (lote de ${m.ultimo_lote}) · ${textoSupabase(m.supabase)}`;verificarInstancia(m.instancia);aplicarFondoPlano(p.tiene_imagen);dibujarPlano(z.zones,p.contorno||[],cam.camaras||[],h.celda_px)}catch(e){console.warn(e)}}
       function dibujarPlano(zonas,contorno,camaras,celdaPx){
         const c=$('#zones'),x=c.getContext('2d');
         x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,c.width,c.height);
