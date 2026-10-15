@@ -22,3 +22,6 @@ __pycache__/
 *.db-wal
 *.db-shm
 estado/
+
+# Modelo de Re-ID exportado a NCNN en cada Pi (ver reid_ncnn.py).
+modelos_ncnn/
