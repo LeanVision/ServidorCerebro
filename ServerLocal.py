@@ -21,6 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -66,6 +67,7 @@ def _cargar_dotenv_local(ruta: str = ".env") -> None:
 _cargar_dotenv_local()
 
 import outbox
+from calidad_foto import calidad_foto, conviene_reemplazar
 from cola_por_persona import NUEVO_DESCARTANDO_VIEJO, REEMPLAZADO, ColaPorPersona
 
 HEATMAP_WIDTH = 640
@@ -180,6 +182,18 @@ REID_LOTE = max(1, _entero_env("CEREBRO_REID_LOTE", 8))
 # pero sus huellas son otras: antes de usarlos en un local hay que volver a
 # medir los umbrales.
 REID_MODELO = os.getenv("CEREBRO_REID_MODELO", "osnet_ibn_x1_0").strip()
+# Con qué corre OSNet: "torch" (por defecto) o "ncnn", que en la Pi es bastante
+# más rápido y da las mismas huellas (ver reid_ncnn.py). Necesita
+# "pip install ncnn pnnx" en la venv; si falta o algo sale mal, sigue PyTorch.
+# Foto de cada persona en la galería del panel: "mejor" (por defecto) se queda
+# con la mejor de la visita (ver calidad_foto.py); "ultima", con la última que
+# mandó la cámara, como antes.
+FOTO_GALERIA = os.getenv("CEREBRO_FOTO_GALERIA", "mejor").strip().lower()
+if FOTO_GALERIA not in ("mejor", "ultima"):
+    print(f"Aviso: CEREBRO_FOTO_GALERIA={FOTO_GALERIA!r} no existe (mejor o ultima); se usa mejor.")
+    FOTO_GALERIA = "mejor"
+REID_MOTOR = os.getenv("CEREBRO_REID_MOTOR", "torch").strip().lower()
+REID_NCNN_DIR = Path(os.getenv("CEREBRO_REID_NCNN_DIR", "modelos_ncnn"))
 SUPABASE_WORKERS = 1
 
 # Re-ID: match flexible para cambios sentado/parado, actualización estricta
@@ -441,7 +455,19 @@ class EscalaIn(BaseModel):
 
 print(f"Cargando modelo Re-ID {REID_MODELO}...")
 extractor_ia = FeatureExtractor(model_name=REID_MODELO, device="cpu")
-print("Modelo Re-ID listo.")
+extractor_ncnn = None
+if REID_MOTOR == "ncnn":
+    try:
+        from reid_ncnn import ExtractorNCNN, exportar_si_falta
+
+        _param, _pesos = exportar_si_falta(extractor_ia.model, REID_NCNN_DIR, REID_MODELO, (256, 128))
+        extractor_ncnn = ExtractorNCNN(extractor_ia, _param, _pesos, hilos=torch.get_num_threads())
+        extractor_ia = extractor_ncnn
+    except Exception:
+        logger.exception("No se pudo usar NCNN para Re-ID; sigue con PyTorch.")
+elif REID_MOTOR != "torch":
+    print(f"Aviso: CEREBRO_REID_MOTOR={REID_MOTOR!r} no existe (torch o ncnn); se usa torch.")
+print(f"Modelo Re-ID listo ({extractor_ncnn.motor if extractor_ncnn else 'torch'}).")
 
 # Edad/género con InsightFace (modelos pre-entrenados: detección SCRFD +
 # genderage). La primera ejecución descarga los pesos a ~/.insightface/models;
@@ -1060,7 +1086,7 @@ def _procesar_lote(jobs: list[DetectionJob]) -> list[str | None]:
     """
     started_at = time.perf_counter()
     resultados: list[str | None] = [None] * len(jobs)
-    preparados: list[tuple[int, tuple[float, float], np.ndarray]] = []
+    preparados: list[tuple[int, tuple[float, float], np.ndarray, float]] = []
     for indice, job in enumerate(jobs):
         try:
             preparado = _preparar_deteccion(job)
@@ -1075,13 +1101,13 @@ def _procesar_lote(jobs: list[DetectionJob]) -> list[str | None]:
         return resultados
 
     with torch.inference_mode():
-        huellas = extractor_ia([imagen for _, _, imagen in preparados])
+        huellas = extractor_ia([imagen for _, _, imagen, _ in preparados])
     with state_lock:
         metricas["ultimo_lote"] = len(preparados)
-    for (indice, posicion_plano, _), huella in zip(preparados, huellas):
+    for (indice, posicion_plano, _, calidad), huella in zip(preparados, huellas):
         try:
             resultados[indice] = _registrar_deteccion(
-                jobs[indice], posicion_plano, _normalizar_huella(huella), started_at
+                jobs[indice], posicion_plano, _normalizar_huella(huella), started_at, calidad
             )
         except Exception:
             logger.exception("No se pudo procesar una detección")
@@ -1090,8 +1116,8 @@ def _procesar_lote(jobs: list[DetectionJob]) -> list[str | None]:
     return resultados
 
 
-def _preparar_deteccion(job: DetectionJob) -> tuple[tuple[float, float], np.ndarray] | None:
-    """Posición en el plano y recorte RGB listo para OSNet, o None.
+def _preparar_deteccion(job: DetectionJob) -> tuple[tuple[float, float], np.ndarray, float] | None:
+    """Posición en el plano, recorte RGB listo para OSNet y calidad de la foto, o None.
 
     Devuelve None si la detección se descarta por caer afuera del contorno
     del local (ver _fuera_del_local) — nunca llega a decodificar el JPEG ni a
@@ -1121,7 +1147,7 @@ def _preparar_deteccion(job: DetectionJob) -> tuple[tuple[float, float], np.ndar
         raise ValueError("JPEG inválido recibido desde la cámara.")
 
     imagen_rgb = cv2.cvtColor(_recorte_para_reid(imagen_cv2), cv2.COLOR_BGR2RGB)
-    return posicion_plano, imagen_rgb
+    return posicion_plano, imagen_rgb, calidad_foto(imagen_cv2)
 
 
 def _registrar_deteccion(
@@ -1129,12 +1155,12 @@ def _registrar_deteccion(
     posicion_plano: tuple[float, float],
     huella_nueva: torch.Tensor,
     started_at: float,
+    calidad: float = 0.0,
 ) -> str | None:
     """Con la huella ya calculada: identidad, zona, heatmap y álbum."""
     global contador_global_ids
     posicion = (job.pos_x, job.pos_y)
     ahora = time.time()
-    foto_b64 = base64.b64encode(job.image_bytes).decode("utf-8")
     id_local = f"{job.camara_id}_{job.tracker_id}" if job.tracker_id else None
 
     with state_lock:
@@ -1150,8 +1176,8 @@ def _registrar_deteccion(
                 _agregar_huella_confiable(datos, huella_nueva, ahora)
                 datos["apariciones"] = datos.get("apariciones", 1) + 1
                 _actualizar_zona_y_tiempo(datos, zona_calculada, ahora)
+                _actualizar_foto_galeria(datos, job.image_bytes, calidad)
                 datos.update({
-                    "foto_b64": foto_b64,
                     "zona_actual": zona_calculada,
                     "timestamp": ahora,
                     "hora_legible": time.strftime("%H:%M:%S"),
@@ -1372,8 +1398,8 @@ def _registrar_deteccion(
             + (1 - ALFA_SIMILITUD_EMA) * datos.get("similitud_ema", similitud_actual)
         )
         _actualizar_zona_y_tiempo(datos, zona_calculada, ahora)
+        _actualizar_foto_galeria(datos, job.image_bytes, calidad)
         datos.update({
-            "foto_b64": foto_b64,
             "zona_actual": zona_calculada,
             "similitud": datos["similitud_ema"],
             "timestamp": ahora,
@@ -1389,6 +1415,13 @@ def _registrar_deteccion(
         _guardar_foto_para_demografia(datos, ahora, job.image_bytes)
         _actualizar_metricas_procesado(started_at)
         return id_global
+
+
+def _actualizar_foto_galeria(datos: dict, image_bytes: bytes, calidad: float) -> None:
+    """Foto que muestra la galería (ver FOTO_GALERIA). Llamar con state_lock."""
+    if conviene_reemplazar(FOTO_GALERIA, datos.get("foto_calidad"), calidad) or not datos.get("foto_b64"):
+        datos["foto_b64"] = base64.b64encode(image_bytes).decode("utf-8")
+        datos["foto_calidad"] = calidad
 
 
 def _actualizar_metricas_procesado(started_at: float) -> None:
@@ -1830,6 +1863,10 @@ def health() -> dict:
             "reid_workers": REID_WORKERS,
             "reid_lote": REID_LOTE,
             "reid_modelo": REID_MODELO,
+            # "ncnn" o "torch". Si se pidió ncnn y dice torch, ver el log: o
+            # faltan los paquetes o las huellas no coincidieron.
+            "reid_motor": extractor_ncnn.motor if extractor_ncnn else "torch",
+            "reid_ncnn": extractor_ncnn.estado() if extractor_ncnn else None,
             "active_global_ids": len(clientes_globales),
             # Identidades con la sesión cerrada que todavía se recuerdan por si
             # la persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS).
