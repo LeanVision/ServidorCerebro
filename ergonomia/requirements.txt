@@ -1,0 +1,8 @@
+# Dependencias del módulo de ergonomía (aparte de las del Cerebro).
+numpy
+opencv-python
+# Modelo de pose: alcanza con uno de los dos.
+ultralytics   # --modelo yolo (por defecto); baja yolo11n-pose.pt la primera vez
+# mediapipe   # --modelo mediapipe; necesita el archivo .task (ver README)
+# Para correr las pruebas.
+pytest
