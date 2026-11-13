@@ -92,6 +92,14 @@ ZONA_CELDA_PX_SIN_ESCALA = 20  # fallback mientras no se definió la escala real
 ZONA_CELDA_MIN_PX = 8
 ZONA_CELDA_MAX_PX = 120
 
+# Tope de tramos por visita. Alguien parado justo sobre el borde entre dos
+# zonas alterna de zona cada vez que la detección se mueve unos centímetros, y
+# cada alternancia que pase el segundo abre un tramo nuevo: sin tope, una sola
+# visita larga infla la lista en RAM y el payload que viaja a la app.
+# ponytail: tope fijo; si aparece un local donde 200 tramos reales no alcanzan,
+# el arreglo no es subirlo sino unir tramos consecutivos de la misma zona.
+MAX_INTERVALOS_ZONA_POR_VISITA = 200
+
 # Margen de tolerancia contra el contorno del local: una calibración de 4
 # puntos es exacta cerca de esos 4 puntos y pierde precisión (~1 m típico,
 # hasta 4-5 m en los bordes del cuadro, medido en producción el 2026-08-20)
@@ -994,6 +1002,41 @@ def _transformar_a_plano(camara_id: str, x: float, y: float) -> tuple[float, flo
     return float(nx), float(ny)
 
 
+def _anotar_intervalo_zona(datos: dict, zona: str, desde: float, hasta: float) -> None:
+    """Deja asentado un tramo cerrado: zona, hora de entrada y hora de salida.
+
+    zona_tiempos guarda el total por zona y pierde el detalle de CUÁNDO estuvo
+    la persona en cada una. Este registro lo conserva, que es lo que permite
+    reconstruir el recorrido y cruzarlo contra otra fuente por horario.
+
+    Mismo criterio de descarte que zona_tiempos: los tramos de menos de un
+    segundo son el roce con el borde de una zona al pasar, no una visita a esa
+    zona. Y se trunca igual (int), para que la suma de los tramos nunca supere
+    la permanencia total.
+    """
+    segundos = int(hasta - desde)
+    if segundos < 1:
+        return
+    intervalos: list[dict] = datos.setdefault("zona_intervalos", [])
+    if len(intervalos) >= MAX_INTERVALOS_ZONA_POR_VISITA:
+        # Una sola vez por visita: con el tope alcanzado, loguear cada tramo
+        # llenaría el journal.
+        if not datos.get("intervalos_truncados"):
+            datos["intervalos_truncados"] = True
+            logger.warning(
+                "Visita con más de %d tramos de zona: se descartan los siguientes. "
+                "Suele ser una detección oscilando sobre el borde de una zona.",
+                MAX_INTERVALOS_ZONA_POR_VISITA,
+            )
+        return
+    intervalos.append({
+        "zona": zona,
+        "entrada": datetime.fromtimestamp(desde, timezone.utc).isoformat(),
+        "salida": datetime.fromtimestamp(hasta, timezone.utc).isoformat(),
+        "segundos": segundos,
+    })
+
+
 def _actualizar_zona_y_tiempo(datos: dict, zona_nueva: str, ahora: float) -> None:
     """Acumula tiempo por zona (en memoria, sin decaimiento). Se llama antes
     de sobreescribir zona_actual, para cerrar el intervalo de la zona previa.
@@ -1003,7 +1046,9 @@ def _actualizar_zona_y_tiempo(datos: dict, zona_nueva: str, ahora: float) -> Non
         datos["zona_desde"] = ahora
     elif zona_anterior != zona_nueva:
         tiempos: dict[str, float] = datos.setdefault("zona_tiempos", {})
-        tiempos[zona_anterior] = tiempos.get(zona_anterior, 0.0) + (ahora - datos.get("zona_desde", ahora))
+        desde = datos.get("zona_desde", ahora)
+        tiempos[zona_anterior] = tiempos.get(zona_anterior, 0.0) + (ahora - desde)
+        _anotar_intervalo_zona(datos, zona_anterior, desde, ahora)
         datos["zona_desde"] = ahora
     # zona_anterior == zona_nueva: el intervalo sigue abierto, no se toca zona_desde.
 
@@ -1672,6 +1717,14 @@ def procesar_y_enviar_supabase(pid: str, datos: dict, tiempo_adentro: int) -> No
             for nombre, segundos in (datos.get("zona_tiempos") or {}).items()
             if segundos >= 1
         },
+        # El recorrido: un tramo por cada paso por una zona, en orden de hora.
+        # zonas_tiempo dice CUÁNTO estuvo en cada zona; esto dice CUÁNDO, que es
+        # lo que hace falta para cruzar el recorrido contra otra fuente de datos
+        # por horario (ver _anotar_intervalo_zona).
+        #
+        # Una misma zona aparece varias veces si la persona volvió a entrar: no
+        # es un registro por zona, es la secuencia del recorrido.
+        "zonas_intervalos": datos.get("zona_intervalos") or [],
     }
 
     # Identifica el HECHO, no el envío: la misma visita reencolada dos veces es
@@ -1754,6 +1807,15 @@ async def reloj_limpiador_background() -> None:
                 # sola zona, imposible. Es el mismo instante que usa
                 # tiempo_adentro, así que ahora los dos números son coherentes.
                 datos["zona_tiempos"] = _cerrar_intervalo_zona(datos, datos["timestamp"])
+                # El último tramo se asienta acá y no en _cerrar_intervalo_zona
+                # porque esa función también la llama /api/clientes para mostrar
+                # el estado en vivo: anotar ahí dejaría un tramo por cada vez
+                # que alguien abre el panel. Mismo instante que zona_tiempos.
+                zona_abierta = datos.get("zona_actual")
+                if zona_abierta is not None:
+                    _anotar_intervalo_zona(
+                        datos, zona_abierta, datos.get("zona_desde", datos["timestamp"]), datos["timestamp"]
+                    )
                 # La sesión termina, la identidad no: se archiva por si la
                 # persona vuelve (ver TIEMPO_MEMORIA_IDENTIDAD_SEGUNDOS). Sólo
                 # lo necesario para reconocerla — nada de fotos ni contadores
